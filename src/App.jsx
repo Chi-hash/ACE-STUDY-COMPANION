@@ -1,4 +1,3 @@
-// src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { auth } from "./assets/js/firebase.js";
@@ -6,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
+import Flashcards from "./components/Flashboard.jsx";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -72,12 +72,81 @@ function App() {
           }
         />
 
-        {/* Protected Route - redirect to login if not authenticated */}
+        {/* Protected Routes - redirect to login if not authenticated */}
         <Route
           path="/dashboard"
           element={
             isAuthenticated ? (
-              <Dashboard currentUser={currentUser} />
+              <Dashboard currentUser={currentUser} initialSection="dashboard" />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/flashcards"
+          element={
+            isAuthenticated ? (
+              <Dashboard
+                currentUser={currentUser}
+                initialSection="flashcards"
+              />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/calendar"
+          element={
+            isAuthenticated ? (
+              <Dashboard currentUser={currentUser} initialSection="calendar" />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/analytics"
+          element={
+            isAuthenticated ? (
+              <Dashboard currentUser={currentUser} initialSection="analytics" />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/resources"
+          element={
+            isAuthenticated ? (
+              <Dashboard currentUser={currentUser} initialSection="resources" />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/chatbot"
+          element={
+            isAuthenticated ? (
+              <Dashboard currentUser={currentUser} initialSection="chatbot" />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/settings"
+          element={
+            isAuthenticated ? (
+              <Dashboard currentUser={currentUser} initialSection="settings" />
             ) : (
               <Navigate to="/" />
             )

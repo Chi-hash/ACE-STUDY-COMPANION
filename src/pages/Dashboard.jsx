@@ -1,6 +1,7 @@
 // src/pages/Dashboard.jsx
 import React, { useState, useEffect } from "react";
 import StudyLayout from "../components/StudyLayout";
+import Flashcards from "../components/Flashboard";
 
 import "../styles/dashboard.css";
 import {

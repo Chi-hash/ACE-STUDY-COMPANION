@@ -1,7 +1,5 @@
 /* dashboard.css */
 .dashboard-container {
-  /* Remove horizontal padding so content aligns with header/sidebar
-     Spacing between sections is handled by the `gap` below */
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -11,7 +9,7 @@
 /* Quick Stats Grid */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(1, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
 
@@ -23,7 +21,8 @@
 
 @media (min-width: 1024px) {
   .stats-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
   }
 }
 
@@ -436,12 +435,16 @@
     background-color: #7f1d1d;
     color: #fca5a5;
     border-color: #991b1b;
+    padding: 3px 5px;
+    border-radius: 5px;
   }
 
   .badge-medium {
     background-color: #78350f;
     color: #fbbf24;
     border-color: #92400e;
+    padding: 3px 5px;
+    border-radius: 5px;
   }
 
   .badge-low,
@@ -449,6 +452,8 @@
     background-color: #374151;
     color: #d1d5db;
     border-color: #4b5563;
+    padding: 3px 5px;
+    border-radius: 5px;
   }
 
   .btn-outline {

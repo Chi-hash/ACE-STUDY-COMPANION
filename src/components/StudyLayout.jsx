@@ -127,15 +127,34 @@ export function StudyLayout({
   };
 
   const sidebarItems = [
-    { id: "dashboard", label: "Dashboard", icon: FaHome },
-    { id: "flashcards", label: "Flashcards", icon: FaBookOpen },
-    { id: "calendar", label: "Calendar", icon: FaCalendarAlt },
-    { id: "analytics", label: "Analytics", icon: FaChartBar },
-    { id: "resources", label: "Resources", icon: FaFolderOpen },
-    { id: "chatbot", label: "Felix AI", icon: FaComments },
-    { id: "settings", label: "Settings", icon: FaCog },
+    { id: "dashboard", label: "Dashboard", icon: FaHome, path: "/dashboard" },
+    {
+      id: "flashcards",
+      label: "Flashcards",
+      icon: FaBookOpen,
+      path: "/flashcards",
+    },
+    {
+      id: "calendar",
+      label: "Calendar",
+      icon: FaCalendarAlt,
+      path: "/calendar",
+    },
+    {
+      id: "analytics",
+      label: "Analytics",
+      icon: FaChartBar,
+      path: "/analytics",
+    },
+    {
+      id: "resources",
+      label: "Resources",
+      icon: FaFolderOpen,
+      path: "/resources",
+    },
+    { id: "chatbot", label: "Felix AI", icon: FaComments, path: "/chatbot" },
+    { id: "settings", label: "Settings", icon: FaCog, path: "/settings" },
   ];
-
   return (
     <div className="study-layout">
       {/* Logout Confirmation Modal */}
