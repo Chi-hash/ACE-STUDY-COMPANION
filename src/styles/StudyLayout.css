@@ -72,6 +72,10 @@
 .sidebar-header {
   padding: 1.5rem;
   border-bottom: 1px solid #e5e7eb;
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .dark .sidebar-header {
@@ -318,9 +322,9 @@
   padding: 0 1.5rem;
   position: fixed;
   top: 0;
-  left: 0;
+  left: 80px;
   right: 0;
-  width: 100%;
+  width: 90%;
   z-index: 60;
   transition: left 0.25s ease, width 0.25s ease;
 }
@@ -577,8 +581,8 @@
 }
 
 .sidebar-collapsed ~ .main-content .main-header {
-  left: 0;
-  width: 100%;
+  left: 80px;
+  width: calc(100% - 80px);
 }
 
 /* Utility Classes */
