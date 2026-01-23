@@ -1,19 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap");
-
-* {
-  font-family: "Inter", sans-serif;
-  font-optical-sizing: auto;
-  font-weight: 300;
-  font-style: normal;
-}
-
-/* globals.css - Definitions for the AceIt Color Palette */
+/* AceIt Official Color Palette */
 :root {
-  /* Brand Colors */
+  /* Brand */
   --primary: #b26ffe;
   --primary-foreground: #ffffff;
 
-  /* Light Mode Palette */
+  /* Light Mode (Slate/White) */
   --background: #f8fafc;
   --foreground: #0f172a;
   --card: #ffffff;
@@ -35,7 +26,7 @@
 }
 
 .dark {
-  /* Dark Mode Palette */
+  /* Dark Mode (Deep Slate) */
   --background: #0f172a;
   --foreground: #f8fafc;
   --card: #1e293b;
@@ -53,9 +44,13 @@
   --sidebar-border: #334155;
 }
 
-/* Base resets to use variables */
+/* Global Transitions */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease,
+    color 0.1s ease;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
-  transition: background-color 0.3s ease, color 0.3s ease;
 }

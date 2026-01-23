@@ -5,7 +5,8 @@ import { onAuthStateChanged } from "firebase/auth";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import Flashcards from "./components/Flashboard.jsx";
+import Flashcards from "./components/Flashcard.jsx";
+import StudyCalendar from "./components/StudyCalendar.jsx";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -102,7 +103,10 @@ function App() {
           path="/calendar"
           element={
             isAuthenticated ? (
-              <Dashboard currentUser={currentUser} initialSection="calendar" />
+              <Dashboard
+                currentUser={currentUser}
+                initialSection="StudyCalendar"
+              />
             ) : (
               <Navigate to="/" />
             )
