@@ -338,7 +338,6 @@ export function Flashcards() {
   const [showQualityButtons, setShowQualityButtons] = useState(false);
   const [lastStudySubject, setLastStudySubject] = useState(null);
   const [lastStudyTopic, setLastStudyTopic] = useState(null);
-  const [showOnlyDueCards, setShowOnlyDueCards] = useState(false);
 
   // AI Generation states
   const [isGenerating, setIsGenerating] = useState(false);
@@ -866,36 +865,7 @@ export function Flashcards() {
   const todaysProgress = useMemo(() => {
     return streakManager.getTodaysProgress();
   }, [streakData]);
-
-  // ==================== CARD NAVIGATION ====================
-  const handleNextCard = useCallback(() => {
-    if (studyCards.length === 0) {
-      setMode("subjects");
-      return;
-    }
-
-    if (currentCardIndex < studyCards.length - 1) {
-      setCurrentCardIndex((prev) => prev + 1);
-      setShowAnswer(false);
-      setShowQualityButtons(false);
-
-      const newProgress = ((currentCardIndex + 2) / studyCards.length) * 100;
-      setStudyProgress(Math.min(newProgress, 100));
-    } else {
-      handleStudySessionComplete();
-    }
-  }, [currentCardIndex, studyCards.length]);
-
-  const handlePrevCard = useCallback(() => {
-    if (currentCardIndex > 0) {
-      setCurrentCardIndex((prev) => prev - 1);
-      setShowAnswer(false);
-      setShowQualityButtons(false);
-
-      const newProgress = (currentCardIndex / studyCards.length) * 100;
-      setStudyProgress(Math.max(newProgress, 0));
-    }
-  }, [currentCardIndex, studyCards.length]);
+  const isStreakComplete = todaysProgress.progressPercent >= 100;
 
   const handleStudySessionComplete = useCallback(() => {
     const cardsStudied = currentCardIndex + 1;
@@ -925,6 +895,47 @@ export function Flashcards() {
     setSelectedSubject,
     setSelectedTopic,
   ]);
+
+  // ==================== CARD NAVIGATION ====================
+  const handleNextCard = useCallback(() => {
+    if (studyCards.length === 0) {
+      setMode("subjects");
+      return;
+    }
+
+    const isLastCard = currentCardIndex >= studyCards.length - 1;
+    if (isLastCard) {
+      if (!showAnswer) {
+        setShowAnswer(true);
+        return;
+      }
+      handleStudySessionComplete();
+      return;
+    }
+
+    setCurrentCardIndex((prev) => prev + 1);
+    setShowAnswer(false);
+    setShowQualityButtons(false);
+
+    const newProgress = ((currentCardIndex + 2) / studyCards.length) * 100;
+    setStudyProgress(Math.min(newProgress, 100));
+  }, [
+    currentCardIndex,
+    handleStudySessionComplete,
+    showAnswer,
+    studyCards.length,
+  ]);
+
+  const handlePrevCard = useCallback(() => {
+    if (currentCardIndex > 0) {
+      setCurrentCardIndex((prev) => prev - 1);
+      setShowAnswer(false);
+      setShowQualityButtons(false);
+
+      const newProgress = (currentCardIndex / studyCards.length) * 100;
+      setStudyProgress(Math.max(newProgress, 0));
+    }
+  }, [currentCardIndex, studyCards.length]);
 
   // ==================== FLASHCARD OPERATIONS ====================
   const handleFileUpload = async (e) => {
@@ -1911,13 +1922,20 @@ export function Flashcards() {
           <button
             className="btn btn-primary"
             onClick={handleNextCard}
-            disabled={currentCardIndex >= studyCards.length - 1 && !showAnswer}
+            disabled={studyCards.length === 0}
           >
             {currentCardIndex >= studyCards.length - 1 ? (
-              <>
-                <FaCheckCircle className="w-4 h-4 mr-2" />
-                Complete Session
-              </>
+              showAnswer ? (
+                <>
+                  <FaCheckCircle className="w-4 h-4 mr-2" />
+                  Complete Session
+                </>
+              ) : (
+                <>
+                  <FaEye className="w-4 h-4 mr-2" />
+                  Reveal Answer
+                </>
+              )
             ) : (
               <>
                 <FaChevronRight className="w-4 h-4 mr-2" />
@@ -2247,22 +2265,9 @@ export function Flashcards() {
   if (mode === "manageTopic" && selectedSubject && selectedTopic) {
     let topicCards = getCardsForTopic(selectedSubject, selectedTopic);
     
-    // Filter to show only due/overdue cards if filter is enabled
-    if (showOnlyDueCards) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      topicCards = topicCards.filter((card) => {
-        const review = reviewData[card.id];
-        if (!review || !review.nextReviewDate) return false;
-        const reviewDate = new Date(review.nextReviewDate);
-        reviewDate.setHours(0, 0, 0, 0);
-        return reviewDate <= today;
-      });
-    }
-
     return (
       <div className="flashcards-container space-y-6">
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flashcards-toolbar">
           <button
             className="btn btn-outline"
             onClick={() => {
@@ -2301,66 +2306,19 @@ export function Flashcards() {
             </div>
           </div>
         ) : (
-          <div className="cards-grid">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h2 className="text-xl font-bold">
-                    {selectedSubject} – {selectedTopic}
-                  </h2>
-                  <p className="text-muted">
-                    {topicCards.length} card{topicCards.length !== 1 ? 's' : ''} {showOnlyDueCards ? 'due for review' : 'in this topic'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className={`btn btn-sm ${showOnlyDueCards ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setShowOnlyDueCards(!showOnlyDueCards)}
-                    title="Show only due/overdue cards"
-                  >
-                    <FaClock className="w-4 h-4 mr-2" />
-                    {showOnlyDueCards ? 'Show All' : 'Due Only'}
-                  </button>
-                  {topicCards.some(card => {
-                    const review = reviewData[card.id];
-                    if (!review || !review.nextReviewDate) return false;
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const reviewDate = new Date(review.nextReviewDate);
-                    reviewDate.setHours(0, 0, 0, 0);
-                    return reviewDate <= today;
-                  }) && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => {
-                        const dueCards = topicCards.filter((card) => {
-                          const review = reviewData[card.id];
-                          if (!review || !review.nextReviewDate) return false;
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          const reviewDate = new Date(review.nextReviewDate);
-                          reviewDate.setHours(0, 0, 0, 0);
-                          return reviewDate <= today;
-                        });
-                        if (dueCards.length > 0) {
-                          setStudyCards(dueCards);
-                          setCurrentCardIndex(0);
-                          setShowAnswer(false);
-                          setShowQualityButtons(false);
-                          setStudyProgress(0);
-                          setMode("study");
-                        }
-                      }}
-                      title="Study due cards"
-                    >
-                      <FaBrain className="w-4 h-4 mr-2" />
-                      Study Due
-                    </button>
-                  )}
-                </div>
+          <>
+            <div className="flashcards-section-header">
+              <div className="flashcards-section-title">
+                <h2>
+                  {selectedSubject} – {selectedTopic}
+                </h2>
+                <p>
+                  {topicCards.length} card{topicCards.length !== 1 ? 's' : ''} in this topic
+                </p>
               </div>
             </div>
-            {topicCards.map((card) => {
+            <div className="cards-grid">
+              {topicCards.map((card) => {
               const reviewInfo = getReviewDateInfo(card.id);
               return (
                 <div key={card.id} className="card-item">
@@ -2403,8 +2361,9 @@ export function Flashcards() {
                   </div>
                 </div>
               );
-            })}
-          </div>
+              })}
+            </div>
+          </>
         )}
 
         {renderEditModal()}
@@ -2465,8 +2424,18 @@ export function Flashcards() {
           <div className="streak-display">
             <div className="streak-info">
               <div className="flex items-center gap-4">
-                <div className="streak-icon">
+                <div
+                  className={`streak-icon ${
+                    isStreakComplete ? "streak-complete" : ""
+                  }`}
+                >
                   <FaFire className="w-6 h-6 text-orange-500" />
+                  {isStreakComplete && (
+                    <>
+                      <span className="streak-flame" aria-hidden="true"></span>
+                      <span className="streak-embers" aria-hidden="true"></span>
+                    </>
+                  )}
                 </div>
                 <div>
                   <h3 className="font-medium">Current Streak</h3>

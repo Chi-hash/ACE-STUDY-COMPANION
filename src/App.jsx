@@ -100,6 +100,17 @@ function App() {
         />
 
         <Route
+          path="/quiz"
+          element={
+            isAuthenticated ? (
+              <Dashboard currentUser={currentUser} initialSection="quiz" />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
           path="/calendar"
           element={
             isAuthenticated ? (

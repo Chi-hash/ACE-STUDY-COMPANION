@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../assets/js/firebase.js";
@@ -103,6 +103,48 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const previousState = {
+      hasDarkClass: root.classList.contains("dark"),
+      dataTheme: root.getAttribute("data-theme"),
+      bodyDark: body.classList.contains("dark-theme"),
+      bodyLight: body.classList.contains("light-theme"),
+    };
+
+    root.classList.remove("dark");
+    root.setAttribute("data-theme", "light");
+    body.classList.remove("dark-theme");
+    body.classList.add("light-theme");
+
+    return () => {
+      if (previousState.hasDarkClass) {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+
+      if (previousState.dataTheme !== null) {
+        root.setAttribute("data-theme", previousState.dataTheme);
+      } else {
+        root.removeAttribute("data-theme");
+      }
+
+      if (previousState.bodyDark) {
+        body.classList.add("dark-theme");
+      } else {
+        body.classList.remove("dark-theme");
+      }
+
+      if (previousState.bodyLight) {
+        body.classList.add("light-theme");
+      } else {
+        body.classList.remove("light-theme");
+      }
+    };
+  }, []);
 
   const [formData, setFormData] = useState({
     name: "",

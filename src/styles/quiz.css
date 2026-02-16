@@ -197,11 +197,35 @@
   color: var(--text-primary);
   font-size: 0.875rem;
   transition: border-color 0.2s;
+  min-height: 40px;
+  line-height: 1.2;
+  padding-right: 2.5rem;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.75rem center;
+  background-repeat: no-repeat;
+  background-size: 1.25em 1.25em;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
 
 .quiz-select:focus {
   outline: none;
   border-color: var(--quiz-primary);
+}
+
+.dark .quiz-select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23e2e8f0' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+}
+
+.quiz-select option {
+  background-color: var(--quiz-background);
+  color: var(--text-primary);
+}
+
+.dark .quiz-select option {
+  background-color: var(--quiz-background);
+  color: var(--text-primary);
 }
 
 .quiz-slider {

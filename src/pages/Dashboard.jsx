@@ -4,6 +4,7 @@ import StudyLayout from "../components/StudyLayout";
 import Flashcards from "../components/Flashcard";
 import StudyCalendar from "../components/StudyCalendar";
 import { Analytics } from "../components/Analytics";
+import { Quiz } from "../components/Quiz";
 import {
   userAPI,
   analyticsAPI,
@@ -28,8 +29,8 @@ import {
   FaSync,
 } from "react-icons/fa";
 
-function Dashboard({ currentUser }) {
-  const [currentSection, setCurrentSection] = useState("dashboard");
+function Dashboard({ currentUser, initialSection = "dashboard" }) {
+  const [currentSection, setCurrentSection] = useState(initialSection);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -394,6 +395,10 @@ function Dashboard({ currentUser }) {
     };
   }, [currentUser]);
 
+  useEffect(() => {
+    setCurrentSection(initialSection);
+  }, [initialSection]);
+
   // Sync streak with local storage and listen for updates
   useEffect(() => {
     if (!currentUser?.uid) return;
@@ -512,6 +517,10 @@ function Dashboard({ currentUser }) {
 
     if (currentSection === "analytics") {
       return <Analytics />;
+    }
+
+    if (currentSection === "quiz") {
+      return <Quiz />;
     }
 
     // Default dashboard content
