@@ -129,6 +129,11 @@
 /* Ensure the subjects search input fills its container */
 .flashcards-subjects-search .input {
   width: 100%;
+  color: #0f172a;
+}
+
+.dark .flashcards-subjects-search .input {
+  color: #f8fafc;
 }
 
 @media (min-width: 768px) {

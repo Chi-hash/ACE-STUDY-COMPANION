@@ -473,8 +473,11 @@ export function Flashcards() {
   );
 
   const triggerStreakUpdate = useCallback(
-    async (activityType, cardsStudied = 1) => {
-      const duration = calculateStudyDuration(cardsStudied);
+    async (activityType, cardsStudied = 1, durationOverrideHours = null) => {
+      const duration =
+        typeof durationOverrideHours === "number"
+          ? durationOverrideHours
+          : calculateStudyDuration(cardsStudied);
       const updatedStreak = streakManager.updateStreak(duration, activityType);
       setStreakData(updatedStreak);
 
@@ -545,7 +548,7 @@ export function Flashcards() {
 
   // Sync flashcard streak with main streak system when StudyLayout updates it
   useEffect(() => {
-    const syncStreakFromMainSystem = () => {
+    const syncStreakFromMainSystem = async () => {
       const uid = getCurrentUserId();
       if (!uid) return;
 
@@ -553,8 +556,6 @@ export function Flashcards() {
         const studyDatesKey = `aceit_study_dates_${uid}`;
         const studyDates =
           JSON.parse(localStorage.getItem(studyDatesKey)) || [];
-
-        if (studyDates.length === 0) return;
 
         // Calculate streak using StudyLayout's method
         const today = new Date();
@@ -584,17 +585,29 @@ export function Flashcards() {
           }
         }
 
+        let backendStreak = 0;
+        try {
+          const gamificationResponse = await analyticsAPI.getGamification(uid);
+          if (gamificationResponse?.ok) {
+            backendStreak = gamificationResponse.gamification?.streak || 0;
+          }
+        } catch (backendError) {
+          console.log("Backend streak fetch failed (non-critical):", backendError);
+        }
+
+        const finalStreak = Math.max(currentStreak, backendStreak);
+
         // Update flashcard streak data to match main system
         const flashcardStreakData = streakManager.getStreakData();
-        if (flashcardStreakData.currentStreak !== currentStreak) {
-          flashcardStreakData.currentStreak = currentStreak;
-          flashcardStreakData.longestStreak = Math.max(
-            flashcardStreakData.longestStreak,
-            currentStreak
-          );
-          streakManager.saveStreakData(flashcardStreakData);
-          setStreakData(flashcardStreakData);
+        if (flashcardStreakData.currentStreak !== finalStreak) {
+          flashcardStreakData.currentStreak = finalStreak;
         }
+        flashcardStreakData.longestStreak = Math.max(
+          flashcardStreakData.longestStreak,
+          finalStreak
+        );
+        streakManager.saveStreakData(flashcardStreakData);
+        setStreakData(flashcardStreakData);
       } catch (error) {
         console.error("Error syncing streak from main system:", error);
       }
@@ -602,7 +615,9 @@ export function Flashcards() {
 
     // Sync on mount and periodically
     syncStreakFromMainSystem();
-    const syncInterval = setInterval(syncStreakFromMainSystem, 30000); // Every 30 seconds
+    const syncInterval = setInterval(() => {
+      syncStreakFromMainSystem();
+    }, 30000); // Every 30 seconds
 
     // Also listen for storage changes (when StudyLayout updates streak)
     const handleStorageChange = (e) => {
@@ -869,7 +884,12 @@ export function Flashcards() {
 
   const handleStudySessionComplete = useCallback(() => {
     const cardsStudied = currentCardIndex + 1;
-    triggerStreakUpdate("flashcards_completed", cardsStudied);
+    let durationHours = null;
+    if (studySessionStartTime.current instanceof Date) {
+      const elapsedMs = Date.now() - studySessionStartTime.current.getTime();
+      durationHours = Math.max(elapsedMs / (1000 * 60 * 60), 0);
+    }
+    triggerStreakUpdate("flashcards_completed", cardsStudied, durationHours);
 
     setCurrentCardIndex(0);
     setShowAnswer(false);
@@ -1333,7 +1353,7 @@ export function Flashcards() {
     setStudyProgress(Math.min(newProgress, 100));
 
     if (quality >= 3) {
-      triggerStreakUpdate("flashcard_correct", 1);
+      triggerStreakUpdate("flashcard_correct", 1, 0);
     }
 
     setTimeout(() => {

@@ -5,6 +5,8 @@ import Flashcards from "../components/Flashcard";
 import StudyCalendar from "../components/StudyCalendar";
 import { Analytics } from "../components/Analytics";
 import { Quiz } from "../components/Quiz";
+import { Resources } from "../components/Resources";
+import { Chatbot } from "../components/Chatbot";
 import {
   userAPI,
   analyticsAPI,
@@ -521,6 +523,14 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
 
     if (currentSection === "quiz") {
       return <Quiz />;
+    }
+
+    if (currentSection === "resources") {
+      return <Resources />;
+    }
+
+    if (currentSection === "chatbot") {
+      return <Chatbot />;
     }
 
     // Default dashboard content

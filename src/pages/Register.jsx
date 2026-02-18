@@ -1,6 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+} from "firebase/auth";
 import { auth } from "../assets/js/firebase.js";
 import "../styles/auth.css";
 import leftlogo from "../assets/leftlogo.svg";
@@ -30,6 +36,7 @@ const PhoneInput = ({ name, placeholder, value, onChange, onCountryChange, defau
     iso: "NG"
   });
   const [filter, setFilter] = useState("");
+  const dropdownRef = useRef(null);
   
   const filteredCountries = filter.trim() === "" 
     ? countries 
@@ -47,8 +54,21 @@ const PhoneInput = ({ name, placeholder, value, onChange, onCountryChange, defau
     }
   };
 
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!open) return;
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setOpen(false);
+        setFilter("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
   return (
-    <div className="phone-input">
+    <div className="phone-input" ref={dropdownRef}>
       <div 
         className="country-selector"
         onClick={() => setOpen(!open)}
@@ -103,6 +123,10 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [phoneStep, setPhoneStep] = useState("INPUT_PHONE");
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [confirmationResult, setConfirmationResult] = useState(null);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -171,6 +195,12 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+
+    if (!phoneVerified) {
+      setError("Please verify your phone number before creating an account.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -256,6 +286,60 @@ const Register = () => {
       setError(err.message || "Google login failed.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendPhoneCode = async () => {
+    setError("");
+
+    const fullPhoneNumber =
+      formData.phone_country_code + formData.phone_number.replace(/\D/g, "");
+
+    if (!formData.phone_number.trim()) {
+      setError("Enter a valid phone number.");
+      return;
+    }
+
+    try {
+      if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(
+          auth,
+          "recaptcha-register-container",
+          {
+            size: "invisible",
+          },
+        );
+      }
+
+      const confirmation = await signInWithPhoneNumber(
+        auth,
+        fullPhoneNumber,
+        window.recaptchaVerifier,
+      );
+      setConfirmationResult(confirmation);
+      setPhoneStep("INPUT_OTP");
+    } catch (err) {
+      console.error("Phone verification error:", err);
+      setError(err.message || "Failed to send verification code.");
+      if (window.recaptchaVerifier) {
+        window.recaptchaVerifier.clear();
+        window.recaptchaVerifier = null;
+      }
+    }
+  };
+
+  const handleVerifyPhoneCode = async () => {
+    setError("");
+    if (!confirmationResult) return;
+
+    try {
+      await confirmationResult.confirm(phoneOtp);
+      setPhoneVerified(true);
+      setPhoneStep("INPUT_PHONE");
+      setPhoneOtp("");
+    } catch (err) {
+      console.error("OTP verification error:", err);
+      setError("Invalid verification code. Please try again.");
     }
   };
 
@@ -355,6 +439,50 @@ const Register = () => {
                         }}
                         defaultCountry="+234"
                       />
+                      <div id="recaptcha-register-container"></div>
+                      {!phoneVerified ? (
+                        <div className="mt-3 space-y-3">
+                          {phoneStep === "INPUT_PHONE" ? (
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={handleSendPhoneCode}
+                              disabled={loading}
+                            >
+                              Send Verification Code
+                            </button>
+                          ) : (
+                            <div className="otp-container">
+                              <p>
+                                Enter the 6-digit code sent to your phone number
+                              </p>
+                              <input
+                                className="otp-input"
+                                type="text"
+                                placeholder="123456"
+                                maxLength="6"
+                                value={phoneOtp}
+                                onChange={(e) =>
+                                  setPhoneOtp(e.target.value.replace(/\D/g, ""))
+                                }
+                                disabled={loading}
+                              />
+                              <button
+                                type="button"
+                                className="submit-button"
+                                onClick={handleVerifyPhoneCode}
+                                disabled={loading || phoneOtp.length !== 6}
+                              >
+                                Verify Phone
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-green-600 mt-2">
+                          Phone number verified
+                        </p>
+                      )}
                     </div>
 
                     <div className="form-field">

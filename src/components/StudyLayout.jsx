@@ -167,12 +167,14 @@ export function StudyLayout({
 
       try {
         const recorded = recordStudyToday();
+        const newStreak = calculateCurrentStreak();
+        if (newStreak !== userStreak) {
+          setUserStreak(newStreak);
+        }
+
         if (!recorded) {
           return false;
         }
-
-        const newStreak = calculateCurrentStreak();
-        setUserStreak(newStreak);
 
         try {
           // Prepare complete gamification data to prevent backend 500 errors
@@ -241,8 +243,26 @@ export function StudyLayout({
       setNotifications,
       recordStudyToday,
       calculateCurrentStreak,
+      userStreak,
     ]
   );
+
+  // Sync streak when study dates change in other tabs/windows
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (!currentUser?.uid) return;
+      const key = event.key || "";
+      if (key.startsWith(`aceit_study_dates_${currentUser.uid}`)) {
+        const newStreak = calculateCurrentStreak();
+        if (newStreak !== userStreak) {
+          setUserStreak(newStreak);
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [currentUser, calculateCurrentStreak, userStreak]);
 
   // Check and maintain streak
   const checkAndMaintainStreak = useCallback(() => {
