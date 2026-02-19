@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../styles/chatbot.css";
 import { chatAPI, libraryAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
@@ -101,6 +101,20 @@ const getSessionGroups = (sessions) => {
   return Object.entries(groups).filter(([, list]) => list.length > 0);
 };
 
+const getResourceId = (doc, index) =>
+  doc.id || doc._id || doc.document_id || `resource-${index}`;
+
+const getResourceTitle = (doc, index) =>
+  doc.title ||
+  doc.name ||
+  doc.filename ||
+  doc.file_name ||
+  doc.originalname ||
+  doc.original_filename ||
+  `Resource ${index + 1}`;
+
+const getResourceSubject = (doc) => doc.subject || doc.course || "General";
+
 export function Chatbot() {
   const [sessions, setSessions] = useState(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState(
@@ -114,7 +128,12 @@ export function Chatbot() {
   const [documents, setDocuments] = useState([]);
   const [showResourcePicker, setShowResourcePicker] = useState(false);
   const [selectedResourceIds, setSelectedResourceIds] = useState([]);
+  const [attachments, setAttachments] = useState([]);
   const endRef = useRef(null);
+  const textareaRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const attachmentsRef = useRef([]);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) || null,
@@ -150,7 +169,6 @@ export function Chatbot() {
           saveMessages(activeSessionId, history);
         }
       } catch (err) {
-        console.error("Chat history error:", err);
         setError("Unable to load chat history.");
       } finally {
         setIsLoadingHistory(false);
@@ -168,7 +186,7 @@ export function Chatbot() {
         const response = await libraryAPI.getDocuments(uid);
         setDocuments(response.documents || response.library || []);
       } catch (err) {
-        console.error("Resource load error:", err);
+        setError("Unable to load resources.");
       }
     };
 
@@ -186,6 +204,30 @@ export function Chatbot() {
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => {
+    return () => {
+      attachmentsRef.current.forEach((file) => {
+        if (file.previewUrl) {
+          URL.revokeObjectURL(file.previewUrl);
+        }
+      });
+    };
+  }, []);
+
+  const resizeTextarea = useCallback(() => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [input, resizeTextarea]);
 
   const handleCreateSession = async () => {
     setError("");
@@ -207,54 +249,73 @@ export function Chatbot() {
       setActiveSessionId(newId);
       setMessages([]);
     } catch (err) {
-      console.error("Create session error:", err);
       setError("Could not start a new chat.");
     }
   };
 
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed || !activeSessionId || isSending) return;
+    const hasAttachments = attachments.length > 0;
+    if ((!trimmed && !hasAttachments) || !activeSessionId || isSending) return;
     setIsSending(true);
     setError("");
 
-    const activeResources = documents.filter((doc) =>
-      selectedResourceIds.includes(doc.id || doc._id || doc.document_id),
+    const activeResources = documents.filter((doc, index) =>
+      selectedResourceIds.includes(getResourceId(doc, index)),
     );
+    const attachmentSummary = hasAttachments
+      ? attachments
+          .map((file) => `- ${file.name} (${file.typeLabel})`)
+          .join("\n")
+      : "";
     const resourceContext = activeResources.length
       ? `Reference these resources when answering:\n${activeResources
           .map((doc, index) => {
-            const title =
-              doc.title ||
-              doc.name ||
-              doc.filename ||
-              doc.file_name ||
-              doc.originalname ||
-              doc.original_filename ||
-              `Resource ${index + 1}`;
-            const subject = doc.subject || doc.course || "General";
+            const title = getResourceTitle(doc, index);
+            const subject = getResourceSubject(doc);
             const summary = doc.summary || doc.description || "";
             return `- ${title} (Subject: ${subject})${
               summary ? `: ${summary}` : ""
             }`;
           })
-          .join("\n")}\n\nUser question: ${trimmed}`
+          .join("\n")}\n\n${trimmed ? `User question: ${trimmed}` : ""}`
       : trimmed;
+    const attachmentContext = attachmentSummary
+      ? `\n\nUser attached files:\n${attachmentSummary}`
+      : "";
+    const messagePayload = `${resourceContext}${attachmentContext}`.trim();
 
-    const userMessage = {
-      id: `user-${Date.now()}`,
+    const now = new Date().toISOString();
+    const attachmentMessages = attachments.map((file, index) => ({
+      id: `user-attachment-${Date.now()}-${index}`,
       role: "user",
-      content: trimmed,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMessage]);
+      type: file.type,
+      content: file.name,
+      url: file.previewUrl,
+      fileSize: file.size,
+      createdAt: now,
+    }));
+
+    const userMessage = trimmed
+      ? {
+          id: `user-${Date.now()}`,
+          role: "user",
+          type: "text",
+          content: trimmed,
+          createdAt: now,
+        }
+      : null;
+
+    setMessages((prev) => [
+      ...prev,
+      ...attachmentMessages,
+      ...(userMessage ? [userMessage] : []),
+    ]);
     setInput("");
+    setAttachments([]);
 
     try {
-      const response = await chatAPI.sendMessage(
-        activeSessionId,
-        resourceContext,
-      );
+      const response = await chatAPI.sendMessage(activeSessionId, messagePayload);
       const replyText =
         response.response ||
         response.reply ||
@@ -272,7 +333,7 @@ export function Chatbot() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      if (activeSession?.title === "New chat") {
+      if (activeSession?.title === "New chat" && trimmed) {
         const nextTitle = trimmed.slice(0, 40);
         const updatedSessions = sessions.map((session) =>
           session.id === activeSessionId
@@ -283,7 +344,6 @@ export function Chatbot() {
         saveSessions(updatedSessions);
       }
     } catch (err) {
-      console.error("Send message error:", err);
       setError("Message failed. Please try again.");
     } finally {
       setIsSending(false);
@@ -295,6 +355,68 @@ export function Chatbot() {
       event.preventDefault();
       handleSend();
     }
+  };
+
+  const buildAttachment = (file, type) => ({
+    id: `${type}-${file.name}-${file.lastModified}`,
+    type,
+    typeLabel: type === "image" ? "image" : "file",
+    name: file.name,
+    size: file.size,
+    previewUrl: type === "image" ? URL.createObjectURL(file) : "",
+  });
+
+  const handleAddAttachments = (files, type) => {
+    if (!files || !files.length) return;
+    const next = Array.from(files).map((file) => buildAttachment(file, type));
+    setAttachments((prev) => [...prev, ...next]);
+  };
+
+  const handleRemoveAttachment = (id) => {
+    setAttachments((prev) => {
+      const removed = prev.find((file) => file.id === id);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return prev.filter((file) => file.id !== id);
+    });
+  };
+
+  const formatFileSize = (bytes = 0) => {
+    if (!bytes) return "";
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    return `${(kb / 1024).toFixed(1)} MB`;
+  };
+
+  const renderMessageContent = (message) => {
+    if (message.type === "image" && message.url) {
+      return (
+        <div className="chatbot-message-bubble image">
+          <img src={message.url} alt={message.content} />
+          <span className="chatbot-attachment-name">{message.content}</span>
+        </div>
+      );
+    }
+
+    if (message.type === "file") {
+      return (
+        <div className="chatbot-message-bubble file">
+          <div className="chatbot-file-card">
+            <div>
+              <span className="chatbot-attachment-name">{message.content}</span>
+              {message.fileSize ? (
+                <span className="chatbot-attachment-meta">
+                  {formatFileSize(message.fileSize)}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return <div className="chatbot-message-bubble">{message.content}</div>;
   };
 
   return (
@@ -335,7 +457,7 @@ export function Chatbot() {
         <div className="chatbot-panel">
           <header className="chatbot-header">
             <div className="chatbot-header-title">
-              <h2>{activeSession?.title || "New chat"}</h2>
+              <h2>Felix AI</h2>
             </div>
             <div className="chatbot-status">
               {isLoadingHistory ? "Loading..." : "Online"}
@@ -375,9 +497,7 @@ export function Chatbot() {
                       key={message.id}
                       className={`chatbot-message ${message.role}`}
                     >
-                      <div className="chatbot-message-bubble">
-                        {message.content}
-                      </div>
+                      {renderMessageContent(message)}
                       <span className="chatbot-message-time">
                         {new Date(message.createdAt).toLocaleTimeString([], {
                           hour: "2-digit",
@@ -425,16 +545,9 @@ export function Chatbot() {
                   </p>
                 ) : (
                   documents.map((doc, index) => {
-                    const id = doc.id || doc._id || doc.document_id || `${index}`;
-                    const title =
-                      doc.title ||
-                      doc.name ||
-                      doc.filename ||
-                      doc.file_name ||
-                      doc.originalname ||
-                      doc.original_filename ||
-                      `Resource ${index + 1}`;
-                    const subject = doc.subject || doc.course || "General";
+                    const id = getResourceId(doc, index);
+                    const title = getResourceTitle(doc, index);
+                    const subject = getResourceSubject(doc);
                     const checked = selectedResourceIds.includes(id);
                     return (
                       <label key={id} className="chatbot-resource-item">
@@ -461,23 +574,99 @@ export function Chatbot() {
             )}
           </div>
 
-          <div className="chatbot-input">
+          <form
+            className="chatbot-input"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSend();
+            }}
+          >
             <input
-              type="text"
-              placeholder="Message Assistant..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={!activeSessionId || isSending}
+              ref={imageInputRef}
+              className="chatbot-hidden-input"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) =>
+                handleAddAttachments(event.target.files, "image")
+              }
             />
-            <button
-              className="chatbot-send-btn"
-              onClick={handleSend}
-              disabled={!input.trim() || !activeSessionId || isSending}
-            >
-              ↑
-            </button>
-          </div>
+            <input
+              ref={fileInputRef}
+              className="chatbot-hidden-input"
+              type="file"
+              accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.csv,.xlsx"
+              multiple
+              onChange={(event) =>
+                handleAddAttachments(event.target.files, "file")
+              }
+            />
+
+            {attachments.length > 0 && (
+              <div className="chatbot-attachments">
+                {attachments.map((file) => (
+                  <div key={file.id} className="chatbot-attachment-chip">
+                    <span>{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(file.id)}
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="chatbot-input-row">
+              <div className="chatbot-input-actions">
+                <button
+                  type="button"
+                  className="chatbot-btn ghost"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={!activeSessionId || isSending}
+                >
+                  Image
+                </button>
+                <button
+                  type="button"
+                  className="chatbot-btn ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!activeSessionId || isSending}
+                >
+                  File
+                </button>
+                <button
+                  type="button"
+                  className="chatbot-btn ghost"
+                  disabled={!activeSessionId || isSending}
+                >
+                  Mic
+                </button>
+              </div>
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                placeholder="Message Assistant..."
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={!activeSessionId || isSending}
+              />
+              <button
+                className="chatbot-send-btn"
+                type="submit"
+                disabled={
+                  !activeSessionId ||
+                  isSending ||
+                  (!input.trim() && attachments.length === 0)
+                }
+              >
+                ↑
+              </button>
+            </div>
+          </form>
         </div>
       </main>
     </div>
