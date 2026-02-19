@@ -2,6 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import "../styles/chatbot.css";
 import { chatAPI, libraryAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
+import {
+  FaPaperclip,
+  FaImage,
+  FaMicrophone,
+  FaPaperPlane,
+  FaBook,
+  FaBars,
+  FaTimes,
+  FaPlus,
+} from "react-icons/fa";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 const SESSIONS_KEY = "ace-it-chat-sessions";
 const messagesKey = (sessionId) => `ace-it-chat-messages-${sessionId}`;
@@ -129,6 +142,8 @@ export function Chatbot() {
   const [showResourcePicker, setShowResourcePicker] = useState(false);
   const [selectedResourceIds, setSelectedResourceIds] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const endRef = useRef(null);
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -178,20 +193,28 @@ export function Chatbot() {
     fetchHistory();
   }, [activeSessionId]);
 
-  useEffect(() => {
-    const loadDocuments = async () => {
-      try {
-        const uid = auth.currentUser?.uid;
-        if (!uid) return;
-        const response = await libraryAPI.getDocuments(uid);
-        setDocuments(response.documents || response.library || []);
-      } catch (err) {
-        setError("Unable to load resources.");
-      }
-    };
-
-    loadDocuments();
+  const loadDocuments = useCallback(async () => {
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      const response = await libraryAPI.getDocuments(uid);
+      setDocuments(response.documents || response.library || []);
+    } catch (err) {
+      console.error("Failed to load documents:", err);
+      // Don't show error to user every time, just log it
+    }
   }, []);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  // Refresh documents when opening resource picker to catch new uploads
+  useEffect(() => {
+    if (showResourcePicker) {
+      loadDocuments();
+    }
+  }, [showResourcePicker, loadDocuments]);
 
   useEffect(() => {
     if (activeSessionId) {
@@ -246,8 +269,11 @@ export function Chatbot() {
       const updated = [newSession, ...sessions];
       setSessions(updated);
       saveSessions(updated);
+      setSessions(updated);
+      saveSessions(updated);
       setActiveSessionId(newId);
       setMessages([]);
+      setShowMobileSidebar(false); // Close sidebar on mobile
     } catch (err) {
       setError("Could not start a new chat.");
     }
@@ -274,9 +300,13 @@ export function Chatbot() {
             const title = getResourceTitle(doc, index);
             const subject = getResourceSubject(doc);
             const summary = doc.summary || doc.description || "";
-            return `- ${title} (Subject: ${subject})${
-              summary ? `: ${summary}` : ""
-            }`;
+            const content = doc.content || doc.text || doc.extracted_text || "";
+            
+            let context = `- ${title} (Subject: ${subject})`;
+            if (summary) context += `\n  Summary: ${summary}`;
+            if (content) context += `\n  Content: ${content.slice(0, 1500)}...`; // Include first 1500 chars of content if available
+            
+            return context;
           })
           .join("\n")}\n\n${trimmed ? `User question: ${trimmed}` : ""}`
       : trimmed;
@@ -416,16 +446,32 @@ export function Chatbot() {
       );
     }
 
-    return <div className="chatbot-message-bubble">{message.content}</div>;
+    return (
+      <div className="chatbot-message-bubble">
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+          {message.content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   return (
-    <div className="chatbot-page">
-      <aside className="chatbot-sidebar">
+    <div className={`chatbot-page ${!isDesktopSidebarOpen ? "desktop-sidebar-closed" : ""}`}>
+      <div
+        className={`chatbot-mobile-overlay ${showMobileSidebar ? "visible" : ""}`}
+        onClick={() => setShowMobileSidebar(false)}
+      />
+      <aside className={`chatbot-sidebar ${showMobileSidebar ? "open" : ""}`}>
         <div className="chatbot-sidebar-header">
           <h3>Felix AI</h3>
-          <p>Your study assistant</p>
+          <button
+            className="chatbot-mobile-close"
+            onClick={() => setShowMobileSidebar(false)}
+          >
+            <FaTimes />
+          </button>
         </div>
+        <p className="chatbot-subtitle">Your study assistant</p>
         <button className="chatbot-btn primary" onClick={handleCreateSession}>
           + New chat
         </button>
@@ -442,7 +488,10 @@ export function Chatbot() {
                     className={`chatbot-session ${
                       activeSessionId === session.id ? "active" : ""
                     }`}
-                    onClick={() => setActiveSessionId(session.id)}
+                    onClick={() => {
+                      setActiveSessionId(session.id);
+                      setShowMobileSidebar(false);
+                    }}
                   >
                     <span>{session.title || "Untitled chat"}</span>
                   </button>
@@ -456,8 +505,21 @@ export function Chatbot() {
       <main className="chatbot-main">
         <div className="chatbot-panel">
           <header className="chatbot-header">
+            <button
+              className="chatbot-mobile-toggle"
+              onClick={() => setShowMobileSidebar(true)}
+            >
+              <FaBars />
+            </button>
+            <button
+              className="chatbot-desktop-toggle"
+              onClick={() => setIsDesktopSidebarOpen((prev) => !prev)}
+              title={isDesktopSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
+            >
+              <FaBars />
+            </button>
             <div className="chatbot-header-title">
-              <h2>Felix AI</h2>
+              <h2>{activeSession?.title || "New chat"}</h2>
             </div>
             <div className="chatbot-status">
               {isLoadingHistory ? "Loading..." : "Online"}
@@ -470,7 +532,7 @@ export function Chatbot() {
             {activeSessionId ? (
               messages.length === 0 ? (
                 <div className="chatbot-empty-state">
-                  <div className="chatbot-empty-icon">AI</div>
+            
                   <h3>How can I help you today?</h3>
                   <p>Ask me anything — I’m here to help.</p>
                   <div className="chatbot-suggestion-grid">
@@ -526,10 +588,12 @@ export function Chatbot() {
           <div className="chatbot-resources">
             <div className="chatbot-resources-header">
               <button
-                className="chatbot-btn ghost"
+                className={`chatbot-btn resource-btn ${showResourcePicker ? "active" : ""}`}
                 onClick={() => setShowResourcePicker((prev) => !prev)}
+                title={showResourcePicker ? "Hide resources" : "Use resources"}
               >
-                {showResourcePicker ? "Hide resources" : "Use resources"}
+                <FaBook />
+                <span>Resources</span>
               </button>
               {selectedResourceIds.length > 0 && (
                 <span className="chatbot-resource-count">
@@ -619,30 +683,35 @@ export function Chatbot() {
               </div>
             )}
 
+
+
             <div className="chatbot-input-row">
               <div className="chatbot-input-actions">
                 <button
                   type="button"
-                  className="chatbot-btn ghost"
+                  className="chatbot-icon-btn"
                   onClick={() => imageInputRef.current?.click()}
                   disabled={!activeSessionId || isSending}
+                  title="Upload Image"
                 >
-                  Image
+                  <FaImage />
                 </button>
                 <button
                   type="button"
-                  className="chatbot-btn ghost"
+                  className="chatbot-icon-btn"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!activeSessionId || isSending}
+                  title="Upload File"
                 >
-                  File
+                  <FaPaperclip />
                 </button>
                 <button
                   type="button"
-                  className="chatbot-btn ghost"
+                  className="chatbot-icon-btn"
                   disabled={!activeSessionId || isSending}
+                  title="Voice Input (Coming Soon)"
                 >
-                  Mic
+                  <FaMicrophone />
                 </button>
               </div>
               <textarea
@@ -663,7 +732,7 @@ export function Chatbot() {
                   (!input.trim() && attachments.length === 0)
                 }
               >
-                ↑
+                <FaPaperPlane />
               </button>
             </div>
           </form>

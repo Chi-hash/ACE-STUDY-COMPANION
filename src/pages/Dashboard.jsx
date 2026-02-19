@@ -7,6 +7,7 @@ import { Analytics } from "../components/Analytics";
 import { Quiz } from "../components/Quiz";
 import { Resources } from "../components/Resources";
 import { Chatbot } from "../components/Chatbot";
+import { Settings } from "../components/Settings";
 import {
   userAPI,
   analyticsAPI,
@@ -531,6 +532,10 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
 
     if (currentSection === "chatbot") {
       return <Chatbot />;
+    }
+
+    if (currentSection === "settings") {
+      return <Settings currentUser={currentUser} />;
     }
 
     // Default dashboard content

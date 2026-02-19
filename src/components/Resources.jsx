@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
+import { FaTimes, FaDownload, FaExternalLinkAlt } from "react-icons/fa";
 import "../styles/resources.css";
 import { libraryAPI, recommendationsAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
@@ -47,12 +48,22 @@ const normalizeUrl = (value) => {
 };
 
 const getTitleFromDocument = (doc) => {
+  const blockedTitles = new Set([
+    "files",
+    "file",
+    "document",
+    "documents",
+    "untitled",
+    "untitled document",
+  ]);
+
   const nestedFile =
     doc?.file ||
     doc?.document ||
     doc?.doc ||
     (Array.isArray(doc?.files) ? doc.files[0] : null) ||
     null;
+
   const rawUrl =
     doc.url ||
     doc.file_url ||
@@ -68,57 +79,43 @@ const getTitleFromDocument = (doc) => {
     nestedFile?.filePath ||
     nestedFile?.path ||
     "";
+
   const urlName = rawUrl
     ? decodeURIComponent(String(rawUrl).split("?")[0]).split("/").pop()
     : "";
-  const candidate =
-    doc.title ||
-    doc.name ||
-    doc.filename ||
-    doc.file_name ||
-    doc.original_filename ||
-    doc.originalname ||
-    doc.fileName ||
-    doc.file?.name ||
-    doc.file?.filename ||
-    doc.file?.originalname ||
-    doc.document?.filename ||
-    doc.document?.originalname ||
-    nestedFile?.name ||
-    nestedFile?.filename ||
-    nestedFile?.originalname ||
-    "";
 
-  const normalizedCandidate = String(candidate || "").trim().toLowerCase();
-  const blockedTitles = new Set([
-    "files",
-    "file",
-    "document",
-    "documents",
-    "untitled",
-    "untitled document",
-  ]);
+  // Priority list of candidates
+  const candidates = [
+    doc.title,
+    doc.name,
+    doc.original_filename,
+    doc.originalname,
+    doc.filename,
+    doc.file_name,
+    doc.fileName,
+    doc.file?.name,
+    doc.file?.filename,
+    doc.file?.originalname,
+    doc.document?.filename,
+    doc.document?.originalname,
+    nestedFile?.name,
+    nestedFile?.filename,
+    nestedFile?.originalname,
+    urlName,
+  ];
 
-  return (
-    (!blockedTitles.has(normalizedCandidate) ? candidate : "") ||
-    doc.title ||
-    doc.name ||
-    doc.filename ||
-    doc.file_name ||
-    doc.original_filename ||
-    doc.originalname ||
-    doc.fileName ||
-    doc.file?.name ||
-    doc.file?.filename ||
-    doc.file?.originalname ||
-    doc.document?.filename ||
-    doc.document?.originalname ||
-    nestedFile?.name ||
-    nestedFile?.filename ||
-    nestedFile?.originalname ||
-    urlName ||
-    ""
-  );
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const cleanBox = String(candidate).trim();
+    if (!cleanBox) continue;
+    const normalized = cleanBox.toLowerCase();
+    
+    if (!blockedTitles.has(normalized)) {
+      return cleanBox;
+    }
+  }
+
+  return "Untitled Resource";
 };
 
 const getSubjectFromDocument = (doc) => {
@@ -166,6 +163,7 @@ export function Resources() {
   const [newSubjectName, setNewSubjectName] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
   const [subjectMap, setSubjectMap] = useState(loadSubjectMap());
+  const [previewResource, setPreviewResource] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -477,16 +475,25 @@ export function Resources() {
     try {
       const optimisticDocs = pendingFiles.map((file, index) => ({
         id: `temp-${Date.now()}-${index}`,
-        title: file.name,
-        filename: file.name,
+        title: file.name, // Explicitly use file.name
+        name: file.name, // Backup
+        filename: file.name, // Backup
         subject,
-        fileType: file.type,
+        type: "Document", // Default type
+        file_type: file.type,
         created_at: new Date().toISOString(),
         file_url: "",
       }));
 
       setDocuments((prev) => [...optimisticDocs, ...prev]);
-      await libraryAPI.uploadDocuments(uid, pendingFiles);
+      
+      // Upload files individually to ensure titles are preserved
+      await Promise.all(
+        pendingFiles.map((file) =>
+          libraryAPI.uploadDocuments(uid, [file], file.name)
+        )
+      );
+
       const refreshed = await libraryAPI.getDocuments(uid);
       const refreshedDocs = refreshed.documents || refreshed.library || [];
 
@@ -774,14 +781,10 @@ export function Resources() {
                       setError("No file link available for this resource yet.");
                       return;
                     }
-                    window.open(
-                      encodeURI(resource.url),
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
+                    setPreviewResource(resource);
                   }}
                 >
-                  Open
+                  View
                 </button>
                         {activeTab !== "saved" && (
                           <button
@@ -811,6 +814,70 @@ export function Resources() {
           </div>
         )}
       </section>
+
+      {/* Resource Preview Modal */}
+      {previewResource && (
+        <div className="resource-preview-overlay" onClick={() => setPreviewResource(null)}>
+          <div className="resource-preview-header" onClick={(e) => e.stopPropagation()}>
+            <h3 className="resource-preview-title">{previewResource.title}</h3>
+            <button className="resource-preview-close" onClick={() => setPreviewResource(null)}>
+              <FaTimes />
+            </button>
+          </div>
+          <div className="resource-preview-content" onClick={(e) => e.stopPropagation()}>
+            {(() => {
+              const url = previewResource.url;
+              const type = previewResource.type?.toLowerCase();
+              const extension = url.split('.').pop().toLowerCase().split('?')[0];
+              
+              const isImage = type === 'image' || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension);
+              const isVideo = type === 'video' || ['mp4', 'webm', 'ogg'].includes(extension);
+              const isPdf = type === 'pdf' || extension === 'pdf';
+              const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(extension);
+
+              if (isImage) {
+                return (
+                  <img src={url} alt={previewResource.title} className="resource-preview-image" />
+                );
+              } else if (isVideo) {
+                 return (
+                  <video controls className="resource-preview-video">
+                    <source src={url} />
+                    Your browser does not support the video tag.
+                  </video>
+                );
+              } else if (isPdf) {
+                 return (
+                  <iframe src={url} title={previewResource.title} className="resource-preview-frame" />
+                );
+              } else if (isOffice) {
+                return (
+                  <iframe 
+                    src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
+                    title={previewResource.title} 
+                    className="resource-preview-frame" 
+                  />
+                );
+              } else {
+                return (
+                  <div className="resource-preview-unsupported">
+                    <p>This file type cannot be previewed directly.</p>
+                    <a 
+                      href={url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="resource-preview-download-btn"
+                    >
+                      <FaDownload style={{ marginRight: '0.5rem' }} />
+                      Download File
+                    </a>
+                  </div>
+                );
+              }
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

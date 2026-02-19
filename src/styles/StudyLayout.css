@@ -690,6 +690,11 @@
   transition: background-color 0.3s ease;
 }
 
+.content-area.chatbot-mode {
+  padding: 4rem 0 0 0;
+  overflow: hidden;
+}
+
 /* Adjust header width/offset according to sidebar state */
 .sidebar-expanded ~ .main-content .main-header {
   left: 16rem;

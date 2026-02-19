@@ -989,7 +989,7 @@ export function StudyLayout({
         </header>
 
         {/* Content Area */}
-        <main className="content-area">
+        <main className={`content-area ${currentSection === "chatbot" ? "chatbot-mode" : ""}`}>
           {loading && currentSection === "dashboard" ? (
             <div className="loading-overlay">
               <div className="loading-spinner"></div>
