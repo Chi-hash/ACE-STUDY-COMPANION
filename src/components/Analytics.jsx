@@ -32,6 +32,9 @@ export function Analytics() {
   const [studySessions, setStudySessions] = useState([]);
   const [subjectProgress, setSubjectProgress] = useState([]);
   const [selectedTimeRange, setSelectedTimeRange] = useState("week");
+  const [prediction, setPrediction] = useState(null);
+  const [predictionError, setPredictionError] = useState("");
+  const [predictionLoading, setPredictionLoading] = useState(false);
   const isMountedRef = useRef(true);
 
   // Chart colors
@@ -190,6 +193,24 @@ export function Analytics() {
       window.removeEventListener("studyActivity", handleStudyActivity);
     };
   }, [loadAnalytics]);
+
+  useEffect(() => {
+    const loadPrediction = async () => {
+      setPredictionLoading(true);
+      setPredictionError("");
+      try {
+        const response = await analyticsAPI.getPerformancePrediction();
+        setPrediction(response);
+      } catch (error) {
+        console.error("Error fetching prediction:", error);
+        setPredictionError("Prediction unavailable");
+      } finally {
+        setPredictionLoading(false);
+      }
+    };
+
+    loadPrediction();
+  }, []);
 
   const getFilteredSessions = () => {
     const now = new Date();
@@ -367,6 +388,33 @@ export function Analytics() {
             <Activity className="analytics-stat-icon" />
           </div>
           <span>per session</span>
+        </div>
+
+        <div className="analytics-stat-card">
+          <div className="analytics-stat-header">
+            <div>
+              <p>Exam Prediction</p>
+              <h3>
+                {predictionLoading
+                  ? "Loading..."
+                  : prediction?.prediction === 1
+                    ? "Pass"
+                    : prediction?.prediction === 0
+                      ? "Fail"
+                      : "N/A"}
+              </h3>
+            </div>
+            <TrendingUp className="analytics-stat-icon" />
+          </div>
+          <span>
+            {predictionLoading
+              ? "Calculating"
+              : predictionError
+                ? predictionError
+                : prediction?.confidence !== undefined
+                  ? `${Math.round(prediction.confidence)}% confidence`
+                  : "No data"}
+          </span>
         </div>
       </div>
 

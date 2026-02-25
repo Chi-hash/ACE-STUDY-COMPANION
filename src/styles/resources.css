@@ -38,8 +38,19 @@
   max-width: 1200px;
   margin: 0 auto 1.75rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.resources-summary-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.resources-summary-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .resources-overview-card {
@@ -180,8 +191,23 @@
 .resource-card-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 0.75rem;
   color: var(--muted-foreground);
+  margin-bottom: 0.25rem;
+}
+
+.resource-selection {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.resource-selection input[type=\"checkbox\"] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 
 .resource-card h3 {

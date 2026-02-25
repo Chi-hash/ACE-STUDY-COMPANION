@@ -313,7 +313,19 @@
 
 .calendar-day.today {
   border: 2px solid var(--primary);
-  background: rgba(139, 92, 246, 0.05);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.dark .calendar-day.today {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.calendar-day.selected.today {
+  background: var(--gradient-primary);
+  color: #fff;
 }
 
 .calendar-day.empty {
@@ -710,6 +722,15 @@
 .text-green-500 { color: var(--success); }
 .animate-spin { animation: spin 1s linear infinite; }
 
+.calendar-error {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+}
+
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -752,6 +773,127 @@
 .mb-4 { margin-bottom: 1rem; }
 .mb-2 { margin-bottom: 0.5rem; }
 .justify-end { justify-content: flex-end; }
+
+/* Study Plans */
+.study-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.study-plan-item {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.study-plan-item:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.study-plan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.study-plan-title {
+  font-weight: 600;
+  color: var(--card-foreground);
+}
+
+.study-plan-count {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  background: rgba(178, 111, 254, 0.12);
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.study-plan-meta {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.study-plan-description {
+  font-size: 0.8rem;
+  color: var(--card-foreground);
+  opacity: 0.8;
+}
+
+.study-plan-sources {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.study-plan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.study-plan-delete {
+  border-color: color-mix(in srgb, var(--error) 45%, transparent);
+  color: var(--error);
+}
+
+.study-plan-delete:hover {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.study-plan-schedule {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+
+.study-plan-days {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.study-plan-day {
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.study-plan-day-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--card-foreground);
+  margin-bottom: 0.4rem;
+}
+
+.study-plan-topic-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--card-foreground);
+}
+
+.study-plan-empty-topics {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
 
 /* Mobile optimization for very small screens (< 450px) */
 @media screen and (max-width: 450px) {

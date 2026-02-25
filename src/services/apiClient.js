@@ -33,7 +33,9 @@ api.interceptors.request.use(async (config) => {
     }
   } else {
     // 2. Final Fallback: Check LocalStorage if Firebase is definitely null
-    const savedToken = localStorage.getItem("firebase_token");
+    const savedToken =
+      localStorage.getItem("aceit_auth_token") ||
+      localStorage.getItem("firebase_token");
     if (savedToken) {
       config.headers.Authorization = `Bearer ${savedToken}`;
     }
@@ -43,6 +45,16 @@ api.interceptors.request.use(async (config) => {
 
 // User Management
 export const userAPI = {
+  register: async (profileData) => {
+    try {
+      const response = await api.post('/register', profileData);
+      return response.data;
+    } catch (error) {
+      console.error('Error registering user:', error);
+      throw error;
+    }
+  },
+
   getProfile: async () => {
     try {
       const response = await api.get('/profile');
@@ -111,6 +123,34 @@ export const chatAPI = {
     }
   },
 
+  sendAudioMessage: async (sessionId, audioBlob, context = "") => {
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.wav');
+      if (context) formData.append('context', context);
+      const response = await api.post(`/chat_audio/${sessionId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error sending audio message:', error);
+      throw error;
+    }
+  },
+
+  generateAudio: async (sessionId, text, messageId = undefined) => {
+    try {
+      const response = await api.post(`/chat/${sessionId}/audio`, {
+        text,
+        message_id: messageId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error generating audio:', error);
+      throw error;
+    }
+  },
+
   getChatHistory: async (sessionId) => {
     try {
       const response = await api.post('/chat/get-history', {
@@ -119,6 +159,18 @@ export const chatAPI = {
       return response.data;
     } catch (error) {
       console.error('Error getting chat history:', error);
+      throw error;
+    }
+  },
+
+  clearMemory: async (sessionId) => {
+    try {
+      const response = await api.post('/chat/clear-memory', {
+        session_id: sessionId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error clearing chat memory:', error);
       throw error;
     }
   },

@@ -1,8 +1,9 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { FaTimes, FaDownload, FaExternalLinkAlt } from "react-icons/fa";
 import "../styles/resources.css";
-import { libraryAPI, recommendationsAPI } from "../services/apiClient.js";
+import { libraryAPI, recommendationsAPI, summaryAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
+import { getResourceId } from "./Chatbot/utils";
 
 const DEFAULT_TYPES = ["All", "Video", "Article", "PDF", "Document", "Link"];
 const DEFAULT_SORT = ["Newest", "Oldest", "A-Z"];
@@ -144,7 +145,7 @@ const persistSubjectMap = (map) => {
   localStorage.setItem(SUBJECT_MAP_KEY, JSON.stringify(map));
 };
 
-export function Resources() {
+export function Resources({ selectedResourceIds = [], setSelectedResourceIds = () => {} }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [sortOrder, setSortOrder] = useState("Newest");
@@ -164,7 +165,12 @@ export function Resources() {
   const [pendingFiles, setPendingFiles] = useState([]);
   const [subjectMap, setSubjectMap] = useState(loadSubjectMap());
   const [previewResource, setPreviewResource] = useState(null);
+  const [summaries, setSummaries] = useState([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
+  const [summaryUploading, setSummaryUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const summaryInputRef = useRef(null);
 
   useEffect(() => {
     const loadSaved = () => {
@@ -243,10 +249,28 @@ export function Resources() {
     loadResources();
   }, []);
 
+  useEffect(() => {
+    const loadSummaries = async () => {
+      setSummaryLoading(true);
+      setSummaryError("");
+      try {
+        const response = await summaryAPI.getSummaries();
+        setSummaries(response.summaries || []);
+      } catch (err) {
+        console.error("Error loading summaries:", err);
+        setSummaryError("Failed to load summaries.");
+      } finally {
+        setSummaryLoading(false);
+      }
+    };
+
+    loadSummaries();
+  }, []);
+
   const normalizedLibrary = useMemo(
     () =>
       documents.map((doc, index) => ({
-        id: doc.id || doc._id || doc.document_id || `doc-${index}`,
+        id: getResourceId(doc, index),
         title: getTitleFromDocument(doc) || "Untitled document",
         description: doc.description || doc.summary || "",
         subject:
@@ -384,6 +408,33 @@ export function Resources() {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
     setPendingFiles(files);
+  };
+
+  const handleSummaryUpload = async (file) => {
+    if (!file) return;
+    setSummaryUploading(true);
+    setSummaryError("");
+    try {
+      await summaryAPI.generateSummary(file);
+      const response = await summaryAPI.getSummaries();
+      setSummaries(response.summaries || []);
+    } catch (err) {
+      console.error("Summary generation failed:", err);
+      setSummaryError("Could not generate summary.");
+    } finally {
+      setSummaryUploading(false);
+      if (summaryInputRef.current) summaryInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteSummary = async (summaryId) => {
+    try {
+      await summaryAPI.deleteSummary(summaryId);
+      setSummaries((prev) => prev.filter((item) => item.id !== summaryId));
+    } catch (err) {
+      console.error("Summary delete failed:", err);
+      setSummaryError("Failed to delete summary.");
+    }
   };
 
   const handleSaveResource = (resource) => {
@@ -669,6 +720,10 @@ export function Resources() {
           <p>Recommended</p>
           <h3>{normalizedRecs.length}</h3>
         </div>
+        <div className="resources-overview-card">
+          <p>Summaries</p>
+          <h3>{summaries.length}</h3>
+        </div>
       </section>
 
       <section className="resources-controls">
@@ -686,6 +741,7 @@ export function Resources() {
               { id: "library", label: "My Library" },
               { id: "recommended", label: "Recommended" },
               { id: "saved", label: "Saved" },
+              { id: "summaries", label: "Summaries" },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -722,7 +778,75 @@ export function Resources() {
       </section>
 
       <section className="resources-grid">
-        {isLoading ? (
+        {activeTab === "summaries" ? (
+          <div className="resources-summary-panel">
+            <div className="resources-summary-actions">
+              <input
+                ref={summaryInputRef}
+                type="file"
+                className="resources-hidden-input"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+                onChange={(e) =>
+                  handleSummaryUpload((e.target.files || [])[0])
+                }
+              />
+              <button
+                className="resources-btn primary"
+                onClick={() => summaryInputRef.current?.click()}
+                disabled={summaryUploading}
+              >
+                {summaryUploading ? "Generating..." : "Upload for Summary"}
+              </button>
+            </div>
+            {summaryLoading ? (
+              <div className="resources-empty">
+                <h3>Loading summaries...</h3>
+                <p>Fetching your saved summaries.</p>
+              </div>
+            ) : summaryError ? (
+              <div className="resources-empty">
+                <h3>Unable to load summaries</h3>
+                <p>{summaryError}</p>
+              </div>
+            ) : summaries.length === 0 ? (
+              <div className="resources-empty">
+                <h3>No summaries yet</h3>
+                <p>Upload a document to generate your first summary.</p>
+              </div>
+            ) : (
+              <div className="resources-subjects">
+                {summaries.map((summary) => (
+                  <article key={summary.id} className="resource-card">
+                    <div className="resource-card-header">
+                      <span className="resource-type">Summary</span>
+                      <span className="resource-date">
+                        {summary.created_at
+                          ? new Date(summary.created_at).toLocaleDateString()
+                          : "Recently"}
+                      </span>
+                    </div>
+                    <div className="resource-card-body">
+                      <h4 className="resource-title">
+                        {summary.title || "Summary"}
+                      </h4>
+                      <p className="resource-description">
+                        {summary.summary || "No summary content"}
+                      </p>
+                    </div>
+                    <div className="resource-card-actions">
+                      <button
+                        className="resources-btn danger"
+                        onClick={() => handleDeleteSummary(summary.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : isLoading ? (
           <div className="resources-empty">
             <h3>Loading resources...</h3>
             <p>Fetching your latest materials.</p>
@@ -758,6 +882,20 @@ export function Resources() {
                   {resources.map((resource) => (
                     <article key={resource.id} className="resource-card">
                       <div className="resource-card-header">
+                        <div className="resource-selection">
+                          <input
+                            type="checkbox"
+                            checked={selectedResourceIds.includes(resource.id)}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              setSelectedResourceIds((prev) =>
+                                isChecked
+                                  ? [...prev, resource.id]
+                                  : prev.filter((id) => id !== resource.id),
+                              );
+                            }}
+                          />
+                        </div>
                         <span className="resource-type">
                           {resource.type || "Document"}
                         </span>

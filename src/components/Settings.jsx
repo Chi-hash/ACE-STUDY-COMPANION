@@ -1,4 +1,8 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import { auth } from "../assets/js/firebase.js";
+import { userAPI } from "../services/apiClient.js";
 import "../styles/settings.css";
 
 const SETTINGS_KEY = "aceit_settings";
@@ -32,9 +36,12 @@ const loadSettings = (currentUser) => {
 };
 
 export function Settings({ currentUser }) {
+  const navigate = useNavigate();
   const initial = useMemo(() => loadSettings(currentUser), [currentUser]);
   const [formState, setFormState] = useState(initial);
   const [status, setStatus] = useState("idle");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const handleChange = (field) => (event) => {
     const value =
@@ -56,6 +63,27 @@ export function Settings({ currentUser }) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(reset));
     setStatus("saved");
     setTimeout(() => setStatus("idle"), 2000);
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmed = window.confirm(
+      "This will permanently delete your account and data. Continue?"
+    );
+    if (!confirmed) return;
+    setDeleteError("");
+    setDeleting(true);
+    try {
+      await userAPI.deleteAccount();
+      await signOut(auth);
+      localStorage.removeItem("aceit_current_user");
+      localStorage.removeItem("aceit_auth_token");
+      navigate("/");
+    } catch (err) {
+      console.error("Delete account failed:", err);
+      setDeleteError("Failed to delete account. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -238,6 +266,22 @@ export function Settings({ currentUser }) {
               <strong>Local device</strong>
             </div>
           </div>
+        </section>
+
+        <section className="settings-card">
+          <header className="settings-card-header">
+            <h2>Danger zone</h2>
+            <p>Delete your account and all stored data.</p>
+          </header>
+          {deleteError && <p className="settings-error">{deleteError}</p>}
+          <button
+            className="btn btn-danger"
+            type="button"
+            onClick={handleDeleteAccount}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting..." : "Delete account"}
+          </button>
         </section>
       </form>
     </div>

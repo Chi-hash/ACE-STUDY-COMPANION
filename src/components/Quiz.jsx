@@ -502,17 +502,26 @@ export function Quiz() {
     }, 0);
 
     const percentage = Math.round((correctCount / questions.length) * 100);
+    const sourceTitle =
+      sourceTab === "document"
+        ? uploadedFile?.name || "Pasted text"
+        : selectedTopic?.name || selectedSubject?.name || "All Subjects";
     const result = {
       id: Date.now(),
       date: new Date().toISOString(),
-      subject: selectedSubject?.name || "All Subjects",
-      topic: selectedTopic?.name || "All Topics",
+      subject:
+        sourceTab === "document"
+          ? "Document Quiz"
+          : selectedSubject?.name || "All Subjects",
+      topic: selectedTopic?.name || (sourceTab === "document" ? null : "All Topics"),
       score: correctCount,
       total: questions.length,
       percentage,
       timeElapsed,
       type: quizType,
       mode: examMode ? "Exam" : "Practice",
+      source: sourceTab,
+      sourceTitle,
     };
 
     const history = JSON.parse(localStorage.getItem("quiz_history") || "[]");
@@ -526,6 +535,20 @@ export function Quiz() {
           console.error("Error saving quiz score:", error)
         );
     }
+
+    const durationHours = Math.max(0.1, timeElapsed / 3600);
+    const studyEvent = new CustomEvent("studyActivity", {
+      detail: {
+        type: "study",
+        duration: durationHours,
+        activity: "quiz_completed",
+        subject: selectedSubject?.name || null,
+        topic: selectedTopic?.name || null,
+        score: correctCount,
+        total: questions.length,
+      },
+    });
+    window.dispatchEvent(studyEvent);
 
     setQuizMode("results");
   };
@@ -865,7 +888,9 @@ export function Quiz() {
                   <div key={item.id} className="quiz-history-item">
                     <div>
                       <p className="quiz-history-title">
-                        {item.subject || "All Subjects"}
+                        {item.source === "document"
+                          ? `Document: ${item.sourceTitle || "Uploaded file"}`
+                          : item.subject || "All Subjects"}
                       </p>
                       <p className="quiz-history-date">
                         {formatHistoryDate(item.date)}

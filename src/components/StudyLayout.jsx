@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { auth } from "../assets/js/firebase.js";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
@@ -45,6 +45,11 @@ export function StudyLayout({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutProgress, setLogoutProgress] = useState(0);
+  const [streakAnimating, setStreakAnimating] = useState(false);
+  const streakTimerRef = useRef(null);
+  const [streakPopupVisible, setStreakPopupVisible] = useState(false);
+  const [streakPopupMessage, setStreakPopupMessage] = useState("");
+  const streakPopupTimerRef = useRef(null);
 
   // Real-time data states
   const [userProfile, setUserProfile] = useState(null);
@@ -172,8 +177,27 @@ export function StudyLayout({
           setUserStreak(newStreak);
         }
 
-        if (!recorded) {
-          return false;
+        if (streakTimerRef.current) {
+          clearTimeout(streakTimerRef.current);
+        }
+        setStreakAnimating(true);
+        streakTimerRef.current = setTimeout(() => {
+          setStreakAnimating(false);
+        }, 1200);
+
+        if (recorded) {
+          if (streakPopupTimerRef.current) {
+            clearTimeout(streakPopupTimerRef.current);
+          }
+          const popupMessage =
+            newStreak === 1
+              ? "Streak started! Keep it going tomorrow."
+              : `Streak locked in! ${newStreak} days strong.`;
+          setStreakPopupMessage(popupMessage);
+          setStreakPopupVisible(true);
+          streakPopupTimerRef.current = setTimeout(() => {
+            setStreakPopupVisible(false);
+          }, 2200);
         }
 
         try {
@@ -181,16 +205,17 @@ export function StudyLayout({
           // The backend likely expects the full object, not just partial updates
           const currentLevel = gamificationData?.level || 1;
           const currentBadges = gamificationData?.badges || [];
-          
-          await analyticsAPI.updateGamification(currentUser.uid, {
-            level: currentLevel,
-            badges: currentBadges,
-            streak: newStreak,
-            longest_streak: Math.max(
-              gamificationData?.longest_streak || 0,
-              newStreak
-            ),
-          });
+          if (recorded) {
+            await analyticsAPI.updateGamification(currentUser.uid, {
+              level: currentLevel,
+              badges: currentBadges,
+              streak: newStreak,
+              longest_streak: Math.max(
+                gamificationData?.longest_streak || 0,
+                newStreak
+              ),
+            });
+          }
         } catch (backendError) {
           console.log("Backend streak update failed", backendError);
         }
@@ -202,7 +227,7 @@ export function StudyLayout({
           }));
         }
 
-        if (setNotifications && newStreak > 0) {
+        if (setNotifications && newStreak > 0 && recorded) {
           let streakMessage = "";
 
           if (newStreak === 1) {
@@ -246,6 +271,17 @@ export function StudyLayout({
       userStreak,
     ]
   );
+
+  useEffect(() => {
+    return () => {
+      if (streakTimerRef.current) {
+        clearTimeout(streakTimerRef.current);
+      }
+      if (streakPopupTimerRef.current) {
+        clearTimeout(streakPopupTimerRef.current);
+      }
+    };
+  }, []);
 
   // Sync streak when study dates change in other tabs/windows
   useEffect(() => {
@@ -747,7 +783,11 @@ export function StudyLayout({
               <div className="profile-info">
                 <p className="profile-name">{getUserDisplayName()}</p>
                 <div className="streak-container">
-                  <FaFire className="sidebar-streak-icon" />
+                  <FaFire
+                    className={`sidebar-streak-icon ${
+                      streakAnimating ? "streak-flame" : ""
+                    }`}
+                  />
                   <span className="streak-text">
                     {userStreak || 0} day streak
                   </span>
@@ -766,7 +806,11 @@ export function StudyLayout({
             {sidebarCollapsed && (
               <div className="flex items-center justify-center">
                 <div className="flex items-center space-x-1">
-                  <FaFire className="sidebar-streak-icon" />
+                  <FaFire
+                    className={`sidebar-streak-icon ${
+                      streakAnimating ? "streak-flame" : ""
+                    }`}
+                  />
                   <span className="streak-number">{userStreak || 0}</span>
                 </div>
               </div>
@@ -847,6 +891,19 @@ export function StudyLayout({
 
       {/* Main Content */}
       <div className="main-content">
+        {streakPopupVisible && (
+          <div className="streak-popup">
+            <div className="streak-popup-content">
+              <FaFire className="streak-popup-icon" />
+              <div className="streak-popup-text">
+                <div className="streak-popup-title">Streak Complete!</div>
+                <div className="streak-popup-message">
+                  {streakPopupMessage}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <header className="main-header">
           <div className="header-left">

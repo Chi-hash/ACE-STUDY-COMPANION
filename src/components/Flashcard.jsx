@@ -49,14 +49,25 @@ import {
 // ==================== COMPLETE STREAK MANAGER ====================
 class StreakManager {
   constructor() {
-    this.STREAK_KEY = "ace-it-streak-data";
+    this.STREAK_KEY = "aceit_streak_data_";
     this.MIN_STUDY_DURATION = 0.25; // 15 minutes
     this.STUDY_GOAL = 0.5; // 30 minutes daily goal
   }
 
-  getStreakData() {
+  getStorageKey(uid) {
+    return `${this.STREAK_KEY}${uid || "guest"}`;
+  }
+
+  toLocalDateString(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  getStreakData(uid) {
     try {
-      const stored = localStorage.getItem(this.STREAK_KEY);
+      const stored = localStorage.getItem(this.getStorageKey(uid));
       const defaultData = {
         currentStreak: 0,
         longestStreak: 0,
@@ -85,9 +96,9 @@ class StreakManager {
     };
   }
 
-  saveStreakData(data) {
+  saveStreakData(uid, data) {
     try {
-      localStorage.setItem(this.STREAK_KEY, JSON.stringify(data));
+      localStorage.setItem(this.getStorageKey(uid), JSON.stringify(data));
     } catch (error) {
       console.error("Error saving streak data:", error);
     }
@@ -97,27 +108,21 @@ class StreakManager {
     if (!lastDateStr) return false;
 
     try {
-      const lastDate = new Date(lastDateStr);
-      const today = new Date();
-      const yesterday = new Date(today);
+      const todayStr = this.toLocalDateString(new Date());
+      const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-
-      const isSameDate = (date1, date2) =>
-        date1.getDate() === date2.getDate() &&
-        date1.getMonth() === date2.getMonth() &&
-        date1.getFullYear() === date2.getFullYear();
-
-      return isSameDate(lastDate, yesterday) || isSameDate(lastDate, today);
+      const yesterdayStr = this.toLocalDateString(yesterday);
+      return lastDateStr === todayStr || lastDateStr === yesterdayStr;
     } catch (error) {
       console.error("Error checking consecutive days:", error);
       return false;
     }
   }
 
-  updateStreak(durationHours, activityType) {
+  updateStreak(uid, durationHours, activityType) {
     try {
-      const streakData = this.getStreakData();
-      const today = new Date().toDateString();
+      const streakData = this.getStreakData(uid);
+      const today = this.toLocalDateString(new Date());
 
       if (!streakData.dailyStudyLog[today]) {
         streakData.dailyStudyLog[today] = {
@@ -159,7 +164,7 @@ class StreakManager {
       }
 
       streakData.totalStudyHours += durationHours;
-      this.saveStreakData(streakData);
+      this.saveStreakData(uid, streakData);
 
       return streakData;
     } catch (error) {
@@ -200,9 +205,9 @@ class StreakManager {
     return [];
   }
 
-  getTodaysProgress() {
-    const streakData = this.getStreakData();
-    const today = new Date().toDateString();
+  getTodaysProgress(uid) {
+    const streakData = this.getStreakData(uid);
+    const today = this.toLocalDateString(new Date());
     const todayLog = streakData.dailyStudyLog[today];
 
     return {
@@ -388,6 +393,12 @@ export function Flashcards() {
     }
   }, []);
 
+  useEffect(() => {
+    const uid = getCurrentUserId();
+    if (!uid) return;
+    setStreakData(streakManager.getStreakData(uid));
+  }, [getCurrentUserId]);
+
   // Helper function to sync with main streak system (StudyLayout)
   const syncWithMainStreakSystem = useCallback(
     async (duration) => {
@@ -457,13 +468,13 @@ export function Flashcards() {
         }
 
         // Update local flashcard streak data to match main system
-        const flashcardStreakData = streakManager.getStreakData();
+        const flashcardStreakData = streakManager.getStreakData(uid);
         flashcardStreakData.currentStreak = currentStreak;
         flashcardStreakData.longestStreak = Math.max(
           flashcardStreakData.longestStreak,
           currentStreak
         );
-        streakManager.saveStreakData(flashcardStreakData);
+        streakManager.saveStreakData(uid, flashcardStreakData);
         setStreakData(flashcardStreakData);
       } catch (error) {
         console.error("Error syncing streak:", error);
@@ -478,7 +489,8 @@ export function Flashcards() {
         typeof durationOverrideHours === "number"
           ? durationOverrideHours
           : calculateStudyDuration(cardsStudied);
-      const updatedStreak = streakManager.updateStreak(duration, activityType);
+      const uid = getCurrentUserId();
+      const updatedStreak = streakManager.updateStreak(uid, duration, activityType);
       setStreakData(updatedStreak);
 
       // Sync with main streak system
@@ -598,16 +610,16 @@ export function Flashcards() {
         const finalStreak = Math.max(currentStreak, backendStreak);
 
         // Update flashcard streak data to match main system
-        const flashcardStreakData = streakManager.getStreakData();
+        const flashcardStreakData = streakManager.getStreakData(uid);
         if (flashcardStreakData.currentStreak !== finalStreak) {
           flashcardStreakData.currentStreak = finalStreak;
         }
-        flashcardStreakData.longestStreak = Math.max(
-          flashcardStreakData.longestStreak,
+          flashcardStreakData.longestStreak = Math.max(
+            flashcardStreakData.longestStreak,
           finalStreak
-        );
-        streakManager.saveStreakData(flashcardStreakData);
-        setStreakData(flashcardStreakData);
+          );
+        streakManager.saveStreakData(uid, flashcardStreakData);
+          setStreakData(flashcardStreakData);
       } catch (error) {
         console.error("Error syncing streak from main system:", error);
       }
@@ -878,8 +890,8 @@ export function Flashcards() {
   }, [reviewData, flashcards]);
 
   const todaysProgress = useMemo(() => {
-    return streakManager.getTodaysProgress();
-  }, [streakData]);
+    return streakManager.getTodaysProgress(getCurrentUserId());
+  }, [streakData, getCurrentUserId]);
   const isStreakComplete = todaysProgress.progressPercent >= 100;
 
   const handleStudySessionComplete = useCallback(() => {
@@ -1946,10 +1958,10 @@ export function Flashcards() {
           >
             {currentCardIndex >= studyCards.length - 1 ? (
               showAnswer ? (
-                <>
-                  <FaCheckCircle className="w-4 h-4 mr-2" />
-                  Complete Session
-                </>
+              <>
+                <FaCheckCircle className="w-4 h-4 mr-2" />
+                Complete Session
+              </>
               ) : (
                 <>
                   <FaEye className="w-4 h-4 mr-2" />
@@ -2284,7 +2296,7 @@ export function Flashcards() {
 
   if (mode === "manageTopic" && selectedSubject && selectedTopic) {
     let topicCards = getCardsForTopic(selectedSubject, selectedTopic);
-    
+
     return (
       <div className="flashcards-container space-y-6">
         <div className="flashcards-toolbar">
@@ -2330,15 +2342,15 @@ export function Flashcards() {
             <div className="flashcards-section-header">
               <div className="flashcards-section-title">
                 <h2>
-                  {selectedSubject} – {selectedTopic}
-                </h2>
+                    {selectedSubject} – {selectedTopic}
+                  </h2>
                 <p>
                   {topicCards.length} card{topicCards.length !== 1 ? 's' : ''} in this topic
-                </p>
-              </div>
-            </div>
+                  </p>
+                </div>
+                </div>
             <div className="cards-grid">
-              {topicCards.map((card) => {
+            {topicCards.map((card) => {
               const reviewInfo = getReviewDateInfo(card.id);
               return (
                 <div key={card.id} className="card-item">
@@ -2381,8 +2393,8 @@ export function Flashcards() {
                   </div>
                 </div>
               );
-              })}
-            </div>
+            })}
+          </div>
           </>
         )}
 

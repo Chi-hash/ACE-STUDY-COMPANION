@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import StudyLayout from "../components/StudyLayout";
 import Flashcards from "../components/Flashcard";
 import StudyCalendar from "../components/StudyCalendar";
@@ -9,7 +9,6 @@ import { Resources } from "../components/Resources";
 import { Chatbot } from "../components/Chatbot";
 import { Settings } from "../components/Settings";
 import {
-  userAPI,
   analyticsAPI,
   remindersAPI,
   recommendationsAPI,
@@ -39,6 +38,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [backendAvailable, setBackendAvailable] = useState(true);
+  const [selectedResourceIds, setSelectedResourceIds] = useState([]);
 
   // Real data states
   const [userProfile, setUserProfile] = useState(null);
@@ -56,6 +56,17 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     studyStreak: 0,
     totalStudyHours: 0,
   });
+
+  const upcomingTasksFiltered = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return upcomingTasks.filter((task) => {
+      if (!task?.dueAt) return true;
+      const dueTime = new Date(task.dueAt).getTime();
+      if (Number.isNaN(dueTime)) return true;
+      return dueTime >= startOfToday.getTime();
+    });
+  }, [upcomingTasks]);
 
   // Fallback recommendations when API fails
   const getFallbackRecommendations = () => [
@@ -79,61 +90,12 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     },
   ];
 
-  // Check if backend is available
-  const checkBackendAvailability = async () => {
-    try {
-      await userAPI.getProfile();
-      return true;
-    } catch (error) {
-      console.log("Backend check failed:", error.message);
-      return false;
-    }
-  };
-
-  // Ensure user has subjects in profile
-  const ensureUserHasSubjects = async () => {
-    try {
-      const profileResponse = await userAPI.getProfile();
-
-      if (profileResponse.ok && profileResponse.profile) {
-        const profile = profileResponse.profile;
-
-        // Check if user has subjects
-        const hasSubjects =
-          profile.subject &&
-          (Array.isArray(profile.subject)
-            ? profile.subject.length > 0
-            : String(profile.subject).trim().length > 0);
-
-        if (!hasSubjects) {
-          console.log("Adding default subjects to user profile...");
-
-          // Update profile with default subjects
-          const updateData = {
-            subject: ["Computer Science", "Mathematics"],
-          };
-
-          // Add required fields if missing (use defaults)
-          if (!profile.date_of_birth) updateData.date_of_birth = "2000-01-01";
-          if (!profile.gender) updateData.gender = "other";
-          if (!profile.phone_number) updateData.phone_number = "+1234567890";
-          if (!profile.name)
-            updateData.name = currentUser?.displayName || "Student";
-
-          await userAPI.updateProfile(updateData);
-          console.log("✅ User profile updated with subjects");
-          return true;
-        }
-
-        console.log("✅ User has subjects:", profile.subject);
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      console.error("Error ensuring user has subjects:", error);
-      return false;
-    }
+  const ensureUserHasSubjects = (profile) => {
+    if (!profile) return false;
+    const subjects = profile.subject;
+    return Array.isArray(subjects)
+      ? subjects.length > 0
+      : String(subjects || "").trim().length > 0;
   };
 
   const calculateStudiedToday = (cards) => {
@@ -144,6 +106,17 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       return new Date(card.lastStudied).toDateString() === today;
     }).length;
   };
+
+  const calculateWeeklyProgress = useCallback(
+    (weeklyHours) => {
+      const hours = Number(weeklyHours);
+      if (!Number.isFinite(hours) || hours <= 0) return 0;
+      const goal = Number(studyStats.weeklyGoal) || 0;
+      if (!goal) return 0;
+      return Math.min(Math.round((hours / goal) * 100), 100);
+    },
+    [studyStats.weeklyGoal]
+  );
 
   // Calculate streak from local storage (same as StudyLayout)
   const calculateLocalStreak = useCallback(() => {
@@ -158,8 +131,11 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       };
 
       const studyDatesKey = `aceit_study_dates_${currentUser.uid}`;
-      const studyDates =
+      const rawStudyDates =
         JSON.parse(localStorage.getItem(studyDatesKey)) || [];
+      const studyDates = Array.from(
+        new Set(rawStudyDates.filter((d) => typeof d === "string"))
+      );
       if (studyDates.length === 0) return 0;
 
       // Sort dates newest to oldest
@@ -214,6 +190,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
 
       if (diffDays === 0) return "Today";
       if (diffDays === 1) return "Tomorrow";
+      if (diffDays < 0) return `${Math.abs(diffDays)} days ago`;
       if (diffDays < 7) return `${diffDays} days`;
 
       return date.toLocaleDateString("en-US", {
@@ -226,6 +203,52 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     }
   };
 
+  const loadLocalCalendarTasks = useCallback(() => {
+    if (!currentUser?.uid) return [];
+    try {
+      const stored = localStorage.getItem(
+        `aceit_calendar_events_${currentUser.uid}`
+      );
+      if (!stored) return [];
+      const parsed = JSON.parse(stored).map((ev) => ({
+        ...ev,
+        date: ev?.date ? new Date(ev.date) : null,
+      }));
+
+      return parsed.map((event, index) => ({
+        id:
+          event.id ||
+          `local-${event.title || "task"}-${event.date?.getTime() || index}`,
+        title: event.title || "Study Task",
+        type: event.type || "study",
+        dueDate: formatReminderDate(event.date),
+        dueAt: event.date ? new Date(event.date) : null,
+        priority: event.priority || "medium",
+        rawReminder: event,
+        isLocal: true,
+      }));
+    } catch (error) {
+      console.error("Error loading local calendar events:", error);
+      return [];
+    }
+  }, [currentUser, formatReminderDate]);
+
+  const dedupeTasks = (tasks) => {
+    const seen = new Set();
+    return tasks.filter((task) => {
+      const key = [
+        task.id,
+        task.title,
+        task.type,
+        task.dueAt ? new Date(task.dueAt).getTime() : "none",
+        task.isLocal ? "local" : "remote",
+      ].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   const fetchDashboardData = async (silent = false) => {
     if (!currentUser?.uid) return;
 
@@ -233,35 +256,44 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       if (!silent) setLoading(true);
       setError(null);
 
-      // Check backend availability
-      const isBackendUp = await checkBackendAvailability();
-      setBackendAvailable(isBackendUp);
-
-      if (!isBackendUp && !silent) {
+      let dashboardData = null;
+      try {
+        // Use dashboardAPI to get all data at once
+        dashboardData = await dashboardAPI.getDashboardData();
+        setBackendAvailable(true);
+      } catch (backendError) {
         console.log("Backend unavailable, using local data");
-        // Use local data from localStorage
-        const localFlashcards = localStorage.getItem("ace-it-flashcards");
-        if (localFlashcards) {
-          const cards = JSON.parse(localFlashcards);
-          setFlashcardStats({
-            totalCards: cards.length,
-            studiedToday: calculateStudiedToday(cards),
-            dueToday: 0,
-          });
+        setBackendAvailable(false);
+        if (!silent) {
+          const localFlashcards = localStorage.getItem("ace-it-flashcards");
+          if (localFlashcards) {
+            const cards = JSON.parse(localFlashcards);
+            setFlashcardStats({
+              totalCards: cards.length,
+              studiedToday: calculateStudiedToday(cards),
+              dueToday: 0,
+            });
+          }
+          const localTasks = loadLocalCalendarTasks();
+          setUpcomingTasks(localTasks);
         }
-        setLoading(false);
         return;
       }
 
-      // Use dashboardAPI to get all data at once
-      const dashboardData = await dashboardAPI.getDashboardData();
-
       // Handle profile
       if (dashboardData.profile?.ok) {
-        setUserProfile(dashboardData.profile.profile);
+        const profile = dashboardData.profile.profile;
+        setUserProfile(profile);
 
         // Debug: Check user subjects
-        console.log("User subjects:", dashboardData.profile.profile.subject);
+        console.log("User subjects:", profile.subject);
+
+        if (profile?.study_hours_per_week != null) {
+          setStudyStats((prev) => ({
+            ...prev,
+            weeklyProgress: calculateWeeklyProgress(profile.study_hours_per_week),
+          }));
+        }
       }
 
       // Handle gamification data
@@ -290,17 +322,33 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       }
 
       // Handle reminders/tasks
+      const localTasks = loadLocalCalendarTasks();
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
       if (dashboardData.reminders?.ok) {
         const reminders = dashboardData.reminders.reminders || [];
-        const tasks = reminders.map((reminder) => ({
+        const tasks = reminders.map((reminder) => {
+          const dueAt = reminder.due_date ? new Date(reminder.due_date) : null;
+          return {
           id: reminder.id || `reminder-${Date.now()}`,
           title: reminder.title || "Study Task",
           type: reminder.type || "study",
           dueDate: formatReminderDate(reminder.due_date),
+          dueAt,
           priority: reminder.priority || "medium",
           rawReminder: reminder,
-        }));
-        setUpcomingTasks(tasks);
+        };
+        });
+
+        const merged = dedupeTasks([...localTasks, ...tasks])
+          .filter((task) => !task.dueAt || task.dueAt >= startOfToday)
+          .sort((a, b) => {
+          const aTime = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
+          const bTime = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
+          return aTime - bTime;
+        });
+        setUpcomingTasks(merged);
 
         // Convert to notifications
         const newNotifications = reminders
@@ -321,26 +369,37 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             ...prev.slice(0, 5),
           ]);
         }
+      } else if (localTasks.length) {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const filteredLocal = dedupeTasks(localTasks).filter(
+          (task) => !task.dueAt || task.dueAt >= startOfToday
+        );
+        setUpcomingTasks(filteredLocal);
       }
 
       // Fetch recommendations - WITH PROPER ERROR HANDLING
       try {
-        // Ensure user has subjects before fetching recommendations
-        await ensureUserHasSubjects();
-
-        const recommendationsResponse =
-          await recommendationsAPI.getRecommendations();
-
-        if (
-          recommendationsResponse.ok &&
-          recommendationsResponse.recommendations
-        ) {
-          setRecommendations(recommendationsResponse.recommendations);
-        } else {
-          console.warn(
-            "Recommendations API returned unexpected format, using fallback"
-          );
+        const hasSubjects = ensureUserHasSubjects(
+          dashboardData.profile?.profile
+        );
+        if (!hasSubjects) {
           setRecommendations(getFallbackRecommendations());
+        } else {
+          const recommendationsResponse =
+            await recommendationsAPI.getRecommendations();
+
+          if (
+            recommendationsResponse.ok &&
+            recommendationsResponse.recommendations
+          ) {
+            setRecommendations(recommendationsResponse.recommendations);
+          } else {
+            console.warn(
+              "Recommendations API returned unexpected format, using fallback"
+            );
+            setRecommendations(getFallbackRecommendations());
+          }
         }
       } catch (recError) {
         console.log("Recommendations endpoint failed, using fallback data");
@@ -355,19 +414,6 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
           studiedToday: 0,
           dueToday: flashcardAnalytics.due_today || 0,
         });
-
-        if (flashcardAnalytics.total_cards > 0) {
-          const weeklyProgress = Math.min(
-            ((flashcardAnalytics.mastered_cards || 0) /
-              flashcardAnalytics.total_cards) *
-              100,
-            100
-          );
-          setStudyStats((prev) => ({
-            ...prev,
-            weeklyProgress: Math.round(weeklyProgress),
-          }));
-        }
       } catch (flashcardError) {
         console.log("Flashcard analytics not available");
       }
@@ -424,6 +470,10 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       }
     };
 
+    const handleCalendarUpdate = () => {
+      fetchDashboardData(true);
+    };
+
     // Periodic sync every 30 seconds
     const syncInterval = setInterval(() => {
       syncStreak();
@@ -431,11 +481,13 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
 
     window.addEventListener("studyActivity", handleStudyActivity);
     window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("calendarEventsUpdated", handleCalendarUpdate);
 
     return () => {
       clearInterval(syncInterval);
       window.removeEventListener("studyActivity", handleStudyActivity);
       window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("calendarEventsUpdated", handleCalendarUpdate);
     };
   }, [currentUser, syncStreak]);
 
@@ -447,7 +499,10 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
         const metrics = response.updated_metrics;
         setStudyStats((prev) => ({
           ...prev,
-          weeklyProgress: metrics.weekly_goal_progress || prev.weeklyProgress,
+          weeklyProgress:
+            metrics.study_hours_per_week != null
+              ? calculateWeeklyProgress(metrics.study_hours_per_week)
+              : prev.weeklyProgress,
           totalStudyHours: prev.totalStudyHours + hours,
         }));
       }
@@ -470,7 +525,6 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       setStudyStats((prev) => ({
         ...prev,
         totalStudyHours: prev.totalStudyHours + hours,
-        weeklyProgress: Math.min(prev.weeklyProgress + 10, 100),
       }));
     }
   };
@@ -527,11 +581,21 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     }
 
     if (currentSection === "resources") {
-      return <Resources />;
+      return (
+        <Resources
+          selectedResourceIds={selectedResourceIds}
+          setSelectedResourceIds={setSelectedResourceIds}
+        />
+      );
     }
 
     if (currentSection === "chatbot") {
-      return <Chatbot />;
+      return (
+        <Chatbot
+          selectedResourceIds={selectedResourceIds}
+          setSelectedResourceIds={setSelectedResourceIds}
+        />
+      );
     }
 
     if (currentSection === "settings") {
@@ -663,7 +727,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             </div>
             <div className="card-content-sm">
               <div className="stat-number stat-purple">
-                {upcomingTasks.length}
+                {upcomingTasksFiltered.length}
               </div>
               <p className="text-xs text-muted">due soon</p>
             </div>
@@ -680,10 +744,10 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
               </div>
             </div>
             <div className="card-content space-y-4">
-              {upcomingTasks.length === 0 ? (
+              {upcomingTasksFiltered.length === 0 ? (
                 <p className="text-muted text-center py-4">No upcoming tasks</p>
               ) : (
-                upcomingTasks.slice(0, 3).map((task) => (
+                upcomingTasksFiltered.slice(0, 3).map((task) => (
                   <div key={task.id} className="task-item">
                     <div className="task-content">
                       <h4 className="task-title">{task.title}</h4>

@@ -208,6 +208,25 @@
   font-weight: 500;
 }
 
+.settings-error {
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  border: 1px solid color-mix(in srgb, #ef4444 30%, transparent);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+  border: 1px solid transparent;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
 @media (max-width: 768px) {
   .settings-header {
     flex-direction: column;

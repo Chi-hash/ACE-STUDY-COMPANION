@@ -1,134 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../styles/chatbot.css";
-import { chatAPI, libraryAPI } from "../services/apiClient.js";
+import { chatAPI, libraryAPI, userAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
+
+// Sub-components
+import ChatSidebar from "./Chatbot/ChatSidebar";
+import ChatHeader from "./Chatbot/ChatHeader";
+import ChatMessages from "./Chatbot/ChatMessages";
+import ResourcePicker from "./Chatbot/ResourcePicker";
+import ChatInput from "./Chatbot/ChatInput";
+import useSpeechSynthesis from "../hooks/useSpeechSynthesis";
+
 import {
-  FaPaperclip,
-  FaImage,
-  FaMicrophone,
-  FaPaperPlane,
-  FaBook,
-  FaBars,
-  FaTimes,
-  FaPlus,
-} from "react-icons/fa";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
+  loadSessions,
+  saveSessions,
+  loadMessages,
+  saveMessages,
+  normalizeHistory,
+  getSessionGroups,
+  getResourceId,
+  getResourceTitle,
+  getResourceSubject,
+  toLocalDate,
+  formatContext,
+} from "./Chatbot/utils";
 
-const SESSIONS_KEY = "ace-it-chat-sessions";
-const messagesKey = (sessionId) => `ace-it-chat-messages-${sessionId}`;
-
-const loadSessions = () => {
-  try {
-    return JSON.parse(localStorage.getItem(SESSIONS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-};
-
-const saveSessions = (sessions) => {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-};
-
-const loadMessages = (sessionId) => {
-  try {
-    return JSON.parse(localStorage.getItem(messagesKey(sessionId)) || "[]");
-  } catch {
-    return [];
-  }
-};
-
-const saveMessages = (sessionId, messages) => {
-  localStorage.setItem(messagesKey(sessionId), JSON.stringify(messages));
-};
-
-const normalizeHistory = (payload) => {
-  if (!payload) return [];
-  const raw =
-    payload.history ||
-    payload.messages ||
-    payload.chat_history ||
-    payload.data ||
-    [];
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item, index) => {
-      const role =
-        item.role ||
-        item.sender ||
-        (item.is_user ? "user" : "assistant") ||
-        "assistant";
-      const content =
-        item.content || item.message || item.text || item.response || "";
-      if (!content) return null;
-      return {
-        id: item.id || `${role}-${index}-${Date.now()}`,
-        role,
-        content,
-        createdAt: item.createdAt || item.created_at || new Date().toISOString(),
-      };
-    })
-    .filter(Boolean);
-};
-
-const toLocalDate = (value) => {
-  const date = value ? new Date(value) : new Date();
-  return Number.isNaN(date.getTime()) ? new Date() : date;
-};
-
-const getSessionGroups = (sessions) => {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() - 1,
-  );
-  const weekAgo = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() - 7,
-  );
-
-  const groups = {
-    Today: [],
-    Yesterday: [],
-    "Previous 7 Days": [],
-    Older: [],
-  };
-
-  sessions.forEach((session) => {
-    const createdAt = toLocalDate(session.createdAt);
-    if (createdAt >= today) {
-      groups.Today.push(session);
-    } else if (createdAt >= yesterday) {
-      groups.Yesterday.push(session);
-    } else if (createdAt >= weekAgo) {
-      groups["Previous 7 Days"].push(session);
-    } else {
-      groups.Older.push(session);
-    }
-  });
-
-  return Object.entries(groups).filter(([, list]) => list.length > 0);
-};
-
-const getResourceId = (doc, index) =>
-  doc.id || doc._id || doc.document_id || `resource-${index}`;
-
-const getResourceTitle = (doc, index) =>
-  doc.title ||
-  doc.name ||
-  doc.filename ||
-  doc.file_name ||
-  doc.originalname ||
-  doc.original_filename ||
-  `Resource ${index + 1}`;
-
-const getResourceSubject = (doc) => doc.subject || doc.course || "General";
-
-export function Chatbot() {
+export function Chatbot({
+  selectedResourceIds = [],
+  setSelectedResourceIds = () => {},
+}) {
   const [sessions, setSessions] = useState(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState(
     sessions[0]?.id || null,
@@ -140,7 +40,6 @@ export function Chatbot() {
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState([]);
   const [showResourcePicker, setShowResourcePicker] = useState(false);
-  const [selectedResourceIds, setSelectedResourceIds] = useState([]);
   const [attachments, setAttachments] = useState([]);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
@@ -148,7 +47,14 @@ export function Chatbot() {
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const audioInputRef = useRef(null);
   const attachmentsRef = useRef([]);
+  const [userProfile, setUserProfile] = useState(null);
+  const [flashcardSets, setFlashcardSets] = useState([]);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    return localStorage.getItem("ace-it-voice-enabled") === "true";
+  });
+  const { speak, cancel, isSpeaking } = useSpeechSynthesis();
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) || null,
@@ -184,6 +90,7 @@ export function Chatbot() {
           saveMessages(activeSessionId, history);
         }
       } catch (err) {
+        console.error("Fetch history error:", err);
         setError("Unable to load chat history.");
       } finally {
         setIsLoadingHistory(false);
@@ -193,6 +100,49 @@ export function Chatbot() {
     fetchHistory();
   }, [activeSessionId]);
 
+  useEffect(() => {
+    localStorage.setItem("ace-it-voice-enabled", voiceEnabled);
+    if (!voiceEnabled) {
+      cancel();
+    }
+  }, [voiceEnabled, cancel]);
+
+  // Auto-speak new assistant messages
+  useEffect(() => {
+    if (voiceEnabled && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === "assistant" && lastMessage.content) {
+        speak(lastMessage.content);
+      }
+    }
+  }, [messages, voiceEnabled, speak]);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const profile = await userAPI.getProfile();
+      setUserProfile(profile);
+    } catch (err) {
+      console.error("Failed to fetch profile:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  const loadFlashcards = useCallback(async () => {
+    try {
+      const response = await flashcardAPI.getFlashcards();
+      setFlashcardSets(response.flashcards || []);
+    } catch (err) {
+      console.error("Failed to load flashcards:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFlashcards();
+  }, [loadFlashcards]);
+
   const loadDocuments = useCallback(async () => {
     try {
       const uid = auth.currentUser?.uid;
@@ -201,7 +151,6 @@ export function Chatbot() {
       setDocuments(response.documents || response.library || []);
     } catch (err) {
       console.error("Failed to load documents:", err);
-      // Don't show error to user every time, just log it
     }
   }, []);
 
@@ -209,7 +158,6 @@ export function Chatbot() {
     loadDocuments();
   }, [loadDocuments]);
 
-  // Refresh documents when opening resource picker to catch new uploads
   useEffect(() => {
     if (showResourcePicker) {
       loadDocuments();
@@ -242,6 +190,27 @@ export function Chatbot() {
     };
   }, []);
 
+  const selectedDocuments = useMemo(() => {
+    return documents.filter((doc, index) => 
+      selectedResourceIds.includes(getResourceId(doc, index))
+    );
+  }, [documents, selectedResourceIds]);
+
+  const globalContext = useMemo(() => {
+    const subjects = userProfile?.profile?.subject 
+      ? (Array.isArray(userProfile.profile.subject) ? userProfile.profile.subject.join(", ") : userProfile.profile.subject)
+      : "Not specified";
+    
+    const docTitles = documents.length > 0
+      ? documents.map((doc, idx) => getResourceTitle(doc, idx)).join(", ")
+      : "None";
+
+    return `[STUDY_CONTEXT_START]
+Subjects: ${subjects}
+Library Resources: ${docTitles}
+[STUDY_CONTEXT_END]`;
+  }, [userProfile, documents]);
+
   const resizeTextarea = useCallback(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = "auto";
@@ -256,11 +225,9 @@ export function Chatbot() {
     setError("");
     try {
       const response = await chatAPI.createChatSession();
-      const newId =
-        response.session_id || response.sessionId || response.id || null;
-      if (!newId) {
-        throw new Error("No session id returned");
-      }
+      const newId = response.session_id || response.sessionId || response.id || null;
+      if (!newId) throw new Error("No session id returned");
+      
       const newSession = {
         id: newId,
         title: "New chat",
@@ -269,12 +236,11 @@ export function Chatbot() {
       const updated = [newSession, ...sessions];
       setSessions(updated);
       saveSessions(updated);
-      setSessions(updated);
-      saveSessions(updated);
       setActiveSessionId(newId);
       setMessages([]);
-      setShowMobileSidebar(false); // Close sidebar on mobile
+      setShowMobileSidebar(false);
     } catch (err) {
+      console.error("Create session error:", err);
       setError("Could not start a new chat.");
     }
   };
@@ -290,30 +256,13 @@ export function Chatbot() {
       selectedResourceIds.includes(getResourceId(doc, index)),
     );
     const attachmentSummary = hasAttachments
-      ? attachments
-          .map((file) => `- ${file.name} (${file.typeLabel})`)
-          .join("\n")
+      ? attachments.map((file) => `- ${file.name} (${file.typeLabel})`).join("\n")
       : "";
     const resourceContext = activeResources.length
-      ? `Reference these resources when answering:\n${activeResources
-          .map((doc, index) => {
-            const title = getResourceTitle(doc, index);
-            const subject = getResourceSubject(doc);
-            const summary = doc.summary || doc.description || "";
-            const content = doc.content || doc.text || doc.extracted_text || "";
-            
-            let context = `- ${title} (Subject: ${subject})`;
-            if (summary) context += `\n  Summary: ${summary}`;
-            if (content) context += `\n  Content: ${content.slice(0, 1500)}...`; // Include first 1500 chars of content if available
-            
-            return context;
-          })
-          .join("\n")}\n\n${trimmed ? `User question: ${trimmed}` : ""}`
-      : trimmed;
-    const attachmentContext = attachmentSummary
-      ? `\n\nUser attached files:\n${attachmentSummary}`
-      : "";
-    const messagePayload = `${resourceContext}${attachmentContext}`.trim();
+    ? `Reference these resources when answering:\n\n${formatContext(activeResources)}\n\n${trimmed ? `User question: ${trimmed}` : ""}`
+    : trimmed;
+    const attachmentContext = attachmentSummary ? `\n\nUser attached files:\n${attachmentSummary}` : "";
+    const messagePayload = `${globalContext}\n\n${resourceContext}${attachmentContext}`.trim();
 
     const now = new Date().toISOString();
     const attachmentMessages = attachments.map((file, index) => ({
@@ -336,25 +285,16 @@ export function Chatbot() {
         }
       : null;
 
-    setMessages((prev) => [
-      ...prev,
-      ...attachmentMessages,
-      ...(userMessage ? [userMessage] : []),
-    ]);
+    setMessages((prev) => [...prev, ...attachmentMessages, ...(userMessage ? [userMessage] : [])]);
     setInput("");
     setAttachments([]);
+    setSelectedResourceIds([]);
 
     try {
       const response = await chatAPI.sendMessage(activeSessionId, messagePayload);
-      const replyText =
-        response.response ||
-        response.reply ||
-        response.message ||
-        response.answer ||
-        "";
-      if (!replyText) {
-        throw new Error("Empty response");
-      }
+      const replyText = response.response || response.reply || response.message || response.answer || "";
+      if (!replyText) throw new Error("Empty response");
+      
       const assistantMessage = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
@@ -366,19 +306,106 @@ export function Chatbot() {
       if (activeSession?.title === "New chat" && trimmed) {
         const nextTitle = trimmed.slice(0, 40);
         const updatedSessions = sessions.map((session) =>
-          session.id === activeSessionId
-            ? { ...session, title: nextTitle }
-            : session,
+          session.id === activeSessionId ? { ...session, title: nextTitle } : session,
         );
         setSessions(updatedSessions);
         saveSessions(updatedSessions);
       }
     } catch (err) {
+      console.error("Send message error:", err);
       setError("Message failed. Please try again.");
     } finally {
       setIsSending(false);
     }
   };
+
+  const handleSendAudio = async (audioBlob) => {
+    if (!activeSessionId || isSending) return;
+    setIsSending(true);
+    setError("");
+
+    try {
+      const response = await chatAPI.sendAudioMessage(activeSessionId, audioBlob, globalContext);
+      const transcript = response.transcription || "";
+      const replyText = response.answer || response.response || "";
+
+      if (transcript) {
+        const userMessage = {
+          id: `user-audio-${Date.now()}`,
+          role: "user",
+          type: "text",
+          content: transcript,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, userMessage]);
+      }
+
+      if (replyText) {
+        const assistantMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: replyText,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        throw new Error("Empty audio response");
+      }
+    } catch (err) {
+      console.error("Send audio error:", err);
+      setError("Audio message failed. Please try again.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleClearMemory = useCallback(async () => {
+    if (!activeSessionId) return;
+    const confirmed = window.confirm(
+      "Clear this chat's memory? This will delete messages in this session."
+    );
+    if (!confirmed) return;
+
+    setIsSending(true);
+    setError("");
+    try {
+      await chatAPI.clearMemory(activeSessionId);
+      setMessages([]);
+      localStorage.removeItem(`ace-it-chat-messages-${activeSessionId}`);
+    } catch (err) {
+      console.error("Clear memory error:", err);
+      setError("Failed to clear chat memory.");
+    } finally {
+      setIsSending(false);
+    }
+  }, [activeSessionId]);
+
+  const handleRenameSession = useCallback((sessionId, newTitle) => {
+    const updatedSessions = sessions.map((s) =>
+      s.id === sessionId ? { ...s, title: newTitle } : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+  }, [sessions]);
+
+  const handleDeleteSession = useCallback((sessionId) => {
+    const updatedSessions = sessions.filter((s) => s.id !== sessionId);
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+
+    // If active session was deleted, switch to another
+    if (activeSessionId === sessionId) {
+      if (updatedSessions.length > 0) {
+        setActiveSessionId(updatedSessions[0].id);
+      } else {
+        setActiveSessionId(null);
+        setMessages([]);
+      }
+    }
+    
+    // Clean up messages from local storage
+    localStorage.removeItem(`ace-it-chat-messages-${sessionId}`);
+  }, [activeSessionId, sessions]);
 
   const handleKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -387,14 +414,24 @@ export function Chatbot() {
     }
   };
 
-  const buildAttachment = (file, type) => ({
-    id: `${type}-${file.name}-${file.lastModified}`,
-    type,
-    typeLabel: type === "image" ? "image" : "file",
-    name: file.name,
-    size: file.size,
-    previewUrl: type === "image" ? URL.createObjectURL(file) : "",
-  });
+  const buildAttachment = (file, type) => {
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    const isHeic = extension === "heic" || extension === "heif";
+    const isImage = type === "image";
+    const previewable = isImage && !isHeic;
+
+    return {
+      id: `${type}-${file.name}-${file.lastModified}`,
+      type,
+      typeLabel: type === "image" ? "image" : "file",
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+      extension,
+      previewable,
+      previewUrl: previewable ? URL.createObjectURL(file) : "",
+    };
+  };
 
   const handleAddAttachments = (files, type) => {
     if (!files || !files.length) return;
@@ -405,54 +442,9 @@ export function Chatbot() {
   const handleRemoveAttachment = (id) => {
     setAttachments((prev) => {
       const removed = prev.find((file) => file.id === id);
-      if (removed?.previewUrl) {
-        URL.revokeObjectURL(removed.previewUrl);
-      }
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       return prev.filter((file) => file.id !== id);
     });
-  };
-
-  const formatFileSize = (bytes = 0) => {
-    if (!bytes) return "";
-    const kb = bytes / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KB`;
-    return `${(kb / 1024).toFixed(1)} MB`;
-  };
-
-  const renderMessageContent = (message) => {
-    if (message.type === "image" && message.url) {
-      return (
-        <div className="chatbot-message-bubble image">
-          <img src={message.url} alt={message.content} />
-          <span className="chatbot-attachment-name">{message.content}</span>
-        </div>
-      );
-    }
-
-    if (message.type === "file") {
-      return (
-        <div className="chatbot-message-bubble file">
-          <div className="chatbot-file-card">
-            <div>
-              <span className="chatbot-attachment-name">{message.content}</span>
-              {message.fileSize ? (
-                <span className="chatbot-attachment-meta">
-                  {formatFileSize(message.fileSize)}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="chatbot-message-bubble">
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-          {message.content}
-        </ReactMarkdown>
-      </div>
-    );
   };
 
   return (
@@ -461,281 +453,73 @@ export function Chatbot() {
         className={`chatbot-mobile-overlay ${showMobileSidebar ? "visible" : ""}`}
         onClick={() => setShowMobileSidebar(false)}
       />
-      <aside className={`chatbot-sidebar ${showMobileSidebar ? "open" : ""}`}>
-        <div className="chatbot-sidebar-header">
-          <h3>Felix AI</h3>
-          <button
-            className="chatbot-mobile-close"
-            onClick={() => setShowMobileSidebar(false)}
-          >
-            <FaTimes />
-          </button>
-        </div>
-        <p className="chatbot-subtitle">Your study assistant</p>
-        <button className="chatbot-btn primary" onClick={handleCreateSession}>
-          + New chat
-        </button>
-        <div className="chatbot-session-list">
-          {sessions.length === 0 ? (
-            <div className="chatbot-empty">No chats yet.</div>
-          ) : (
-            groupedSessions.map(([label, list]) => (
-              <div key={label} className="chatbot-session-group">
-                <p className="chatbot-session-label">{label}</p>
-                {list.map((session) => (
-                  <button
-                    key={session.id}
-                    className={`chatbot-session ${
-                      activeSessionId === session.id ? "active" : ""
-                    }`}
-                    onClick={() => {
-                      setActiveSessionId(session.id);
-                      setShowMobileSidebar(false);
-                    }}
-                  >
-                    <span>{session.title || "Untitled chat"}</span>
-                  </button>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
-      </aside>
+      
+      <ChatSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        setActiveSessionId={setActiveSessionId}
+        handleCreateSession={handleCreateSession}
+        handleDeleteSession={handleDeleteSession}
+        handleRenameSession={handleRenameSession}
+        showMobileSidebar={showMobileSidebar}
+        setShowMobileSidebar={setShowMobileSidebar}
+        groupedSessions={groupedSessions}
+      />
 
       <main className="chatbot-main">
         <div className="chatbot-panel">
-          <header className="chatbot-header">
-            <button
-              className="chatbot-mobile-toggle"
-              onClick={() => setShowMobileSidebar(true)}
-            >
-              <FaBars />
-            </button>
-            <button
-              className="chatbot-desktop-toggle"
-              onClick={() => setIsDesktopSidebarOpen((prev) => !prev)}
-              title={isDesktopSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
-            >
-              <FaBars />
-            </button>
-            <div className="chatbot-header-title">
-              <h2>{activeSession?.title || "New chat"}</h2>
-            </div>
-            <div className="chatbot-status">
-              {isLoadingHistory ? "Loading..." : "Online"}
-            </div>
-          </header>
+          <ChatHeader
+            activeSessionTitle={activeSession?.title}
+            isLoadingHistory={isLoadingHistory}
+            setShowMobileSidebar={setShowMobileSidebar}
+            isDesktopSidebarOpen={isDesktopSidebarOpen}
+            setIsDesktopSidebarOpen={setIsDesktopSidebarOpen}
+            voiceEnabled={voiceEnabled}
+            setVoiceEnabled={setVoiceEnabled}
+            onClearMemory={handleClearMemory}
+            canClearMemory={Boolean(activeSessionId)}
+          />
 
           {error && <div className="chatbot-error">{error}</div>}
 
-          <section className="chatbot-messages">
-            {activeSessionId ? (
-              messages.length === 0 ? (
-                <div className="chatbot-empty-state">
-            
-                  <h3>How can I help you today?</h3>
-                  <p>Ask me anything — I’m here to help.</p>
-                  <div className="chatbot-suggestion-grid">
-                    {[
-                      "Explain quantum computing in simple terms",
-                      "Write a Python script to sort a list",
-                      "Summarize the key ideas of stoicism",
-                      "Give me creative ideas for a birthday party",
-                    ].map((text) => (
-                      <button
-                        key={text}
-                        className="chatbot-suggestion-card"
-                        onClick={() => setInput(text)}
-                      >
-                        {text}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="chatbot-message-list">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`chatbot-message ${message.role}`}
-                    >
-                      {renderMessageContent(message)}
-                      <span className="chatbot-message-time">
-                        {new Date(message.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </div>
-                  ))}
-                  <div ref={endRef} />
-                </div>
-              )
-            ) : (
-              <div className="chatbot-empty-state">
-                <h3>Create a chat</h3>
-                <p>Start a new session to talk with Felix AI.</p>
-                <button
-                  className="chatbot-btn primary"
-                  onClick={handleCreateSession}
-                >
-                  New chat
-                </button>
-              </div>
-            )}
-          </section>
+          <ChatMessages
+            messages={messages}
+            activeSessionId={activeSessionId}
+            handleCreateSession={handleCreateSession}
+            setInput={setInput}
+            endRef={endRef}
+            isSending={isSending}
+            speak={speak}
+            cancel={cancel}
+            isSpeaking={isSpeaking}
+          />
 
-          <div className="chatbot-resources">
-            <div className="chatbot-resources-header">
-              <button
-                className={`chatbot-btn resource-btn ${showResourcePicker ? "active" : ""}`}
-                onClick={() => setShowResourcePicker((prev) => !prev)}
-                title={showResourcePicker ? "Hide resources" : "Use resources"}
-              >
-                <FaBook />
-                <span>Resources</span>
-              </button>
-              {selectedResourceIds.length > 0 && (
-                <span className="chatbot-resource-count">
-                  {selectedResourceIds.length} selected
-                </span>
-              )}
-            </div>
-            {showResourcePicker && (
-              <div className="chatbot-resources-list">
-                {documents.length === 0 ? (
-                  <p className="chatbot-resources-empty">
-                    No resources found in your library yet.
-                  </p>
-                ) : (
-                  documents.map((doc, index) => {
-                    const id = getResourceId(doc, index);
-                    const title = getResourceTitle(doc, index);
-                    const subject = getResourceSubject(doc);
-                    const checked = selectedResourceIds.includes(id);
-                    return (
-                      <label key={id} className="chatbot-resource-item">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setSelectedResourceIds((prev) =>
-                              checked
-                                ? prev.filter((value) => value !== id)
-                                : [...prev, id],
-                            );
-                          }}
-                        />
-                        <div>
-                          <span>{title}</span>
-                          <small>{subject}</small>
-                        </div>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
+          <ResourcePicker
+            showResourcePicker={showResourcePicker}
+            setShowResourcePicker={setShowResourcePicker}
+            selectedResourceIds={selectedResourceIds}
+            setSelectedResourceIds={setSelectedResourceIds}
+            documents={documents}
+          />
 
-          <form
-            className="chatbot-input"
-            onSubmit={(event) => {
-              event.preventDefault();
-              handleSend();
-            }}
-          >
-            <input
-              ref={imageInputRef}
-              className="chatbot-hidden-input"
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(event) =>
-                handleAddAttachments(event.target.files, "image")
-              }
-            />
-            <input
-              ref={fileInputRef}
-              className="chatbot-hidden-input"
-              type="file"
-              accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.csv,.xlsx"
-              multiple
-              onChange={(event) =>
-                handleAddAttachments(event.target.files, "file")
-              }
-            />
-
-            {attachments.length > 0 && (
-              <div className="chatbot-attachments">
-                {attachments.map((file) => (
-                  <div key={file.id} className="chatbot-attachment-chip">
-                    <span>{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(file.id)}
-                      aria-label={`Remove ${file.name}`}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-
-
-            <div className="chatbot-input-row">
-              <div className="chatbot-input-actions">
-                <button
-                  type="button"
-                  className="chatbot-icon-btn"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={!activeSessionId || isSending}
-                  title="Upload Image"
-                >
-                  <FaImage />
-                </button>
-                <button
-                  type="button"
-                  className="chatbot-icon-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={!activeSessionId || isSending}
-                  title="Upload File"
-                >
-                  <FaPaperclip />
-                </button>
-                <button
-                  type="button"
-                  className="chatbot-icon-btn"
-                  disabled={!activeSessionId || isSending}
-                  title="Voice Input (Coming Soon)"
-                >
-                  <FaMicrophone />
-                </button>
-              </div>
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                placeholder="Message Assistant..."
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={!activeSessionId || isSending}
-              />
-              <button
-                className="chatbot-send-btn"
-                type="submit"
-                disabled={
-                  !activeSessionId ||
-                  isSending ||
-                  (!input.trim() && attachments.length === 0)
-                }
-              >
-                <FaPaperPlane />
-              </button>
-            </div>
-          </form>
+          <ChatInput
+            input={input}
+            setInput={setInput}
+            isSending={isSending}
+            activeSessionId={activeSessionId}
+            handleSend={handleSend}
+            handleKeyDown={handleKeyDown}
+            attachments={attachments}
+            handleAddAttachments={handleAddAttachments}
+            handleRemoveAttachment={handleRemoveAttachment}
+            imageInputRef={imageInputRef}
+            fileInputRef={fileInputRef}
+            audioInputRef={audioInputRef}
+            textareaRef={textareaRef}
+            selectedDocuments={selectedDocuments}
+            setSelectedResourceIds={setSelectedResourceIds}
+            handleSendAudio={handleSendAudio}
+          />
         </div>
       </main>
     </div>
