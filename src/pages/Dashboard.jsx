@@ -29,9 +29,46 @@ import {
   FaTrophy,
   FaExclamationTriangle,
   FaSync,
+  FaRobot,
+  FaPaperPlane,
+  FaBolt,
+  FaMedal,
+  FaChartBar,
 } from "react-icons/fa";
 
+const DAILY_TIPS = [
+  "Spaced repetition is the most effective long-term memorization technique.",
+  "Take a 5-minute break every 25 minutes to stay sharp — try the Pomodoro method.",
+  "Teaching a concept to someone else is the fastest way to master it.",
+  "Sleeping after studying helps consolidate memories significantly.",
+  "Active recall beats re-reading every time — use your flashcards!",
+  "Start with the hardest topic when your focus is at its peak.",
+  "Consistent short sessions beat infrequent long ones for retention.",
+];
+
+const LOADING_QUOTES = [
+  { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { quote: "Education is the most powerful weapon you can use to change the world.", author: "Nelson Mandela" },
+  { quote: "The more that you read, the more things you will know.", author: "Dr. Seuss" },
+  { quote: "An investment in knowledge pays the best interest.", author: "Benjamin Franklin" },
+  { quote: "Live as if you were to die tomorrow. Learn as if you were to live forever.", author: "Mahatma Gandhi" },
+  { quote: "The expert in anything was once a beginner.", author: "Helen Hayes" },
+  { quote: "Success is the sum of small efforts repeated day in and day out.", author: "Robert Collier" },
+  { quote: "The beautiful thing about learning is nobody can take it away from you.", author: "B.B. King" },
+  { quote: "Don't watch the clock; do what it does — keep going.", author: "Sam Levenson" },
+  { quote: "Genius is 1% inspiration and 99% perspiration.", author: "Thomas Edison" },
+  { quote: "It does not matter how slowly you go, as long as you do not stop.", author: "Confucius" },
+  { quote: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+];
+
+const getTodaysTip = () => {
+  const dayIndex = new Date().getDay();
+  return DAILY_TIPS[dayIndex % DAILY_TIPS.length];
+};
+
 function Dashboard({ currentUser, initialSection = "dashboard" }) {
+  const [quickAskQuery, setQuickAskQuery] = useState("");
+  const [quickAskLoading, setQuickAskLoading] = useState(false);
   const [currentSection, setCurrentSection] = useState(initialSection);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -56,6 +93,24 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     studyStreak: 0,
     totalStudyHours: 0,
   });
+
+  const [performancePrediction, setPerformancePrediction] = useState(null);
+  const [predictionLoading, setPredictionLoading] = useState(false);
+  const [logHours, setLogHours] = useState("");
+
+  // Loading quote rotation
+  const [quoteIndex, setQuoteIndex] = useState(() =>
+    Math.floor(Math.random() * LOADING_QUOTES.length)
+  );
+  const [quoteFading, setQuoteFading] = useState(false);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logSuccess, setLogSuccess] = useState(false);
+  const [logActivityToast, setLogActivityToast] = useState(null);
+
+  const showToast = useCallback((type, msg) => {
+    setLogActivityToast({ type, msg });
+    setTimeout(() => setLogActivityToast(null), 3500);
+  }, []);
 
   const upcomingTasksFiltered = useMemo(() => {
     const startOfToday = new Date();
@@ -321,6 +376,19 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
         }));
       }
 
+      // Fetch performance prediction (non-blocking, silently fails on 500)
+      setPredictionLoading(true);
+      try {
+        const predictionRes = await analyticsAPI.getPerformancePrediction();
+        if (predictionRes?.ok) {
+          setPerformancePrediction(predictionRes);
+        }
+      } catch {
+        // Backend returns 500 — silently ignore, card shows "unavailable"
+      } finally {
+        setPredictionLoading(false);
+      }
+
       // Handle reminders/tasks
       const localTasks = loadLocalCalendarTasks();
       const startOfToday = new Date();
@@ -350,25 +418,9 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
         });
         setUpcomingTasks(merged);
 
-        // Convert to notifications
-        const newNotifications = reminders
-          .filter((r) => !r.completed)
-          .slice(0, 3)
-          .map((r) => ({
-            id: `reminder-${r.id}`,
-            title: "Study Reminder",
-            message: r.title || "Complete your study task",
-            time: "Today",
-            type: "reminder",
-            read: false,
-          }));
+        // Notifications are managed exclusively by StudyLayout's fetchReminders()
+        // to avoid duplicates. Dashboard only updates the task list here.
 
-        if (!silent) {
-          setNotifications((prev) => [
-            ...newNotifications,
-            ...prev.slice(0, 5),
-          ]);
-        }
       } else if (localTasks.length) {
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
@@ -417,6 +469,19 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       } catch (flashcardError) {
         console.log("Flashcard analytics not available");
       }
+
+      // Fetch performance prediction (silent fail — backend may 500)
+      if (!silent) {
+        setPredictionLoading(true);
+        try {
+          const pred = await analyticsAPI.getPerformancePrediction();
+          if (pred?.ok) setPerformancePrediction(pred);
+        } catch {
+          // Backend issue — silently ignore
+        } finally {
+          setPredictionLoading(false);
+        }
+      }
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
       if (!silent) {
@@ -430,6 +495,28 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       }
     }
   };
+
+  // Lock scroll + rotate quotes while loading
+  useEffect(() => {
+    if (loading) {
+      document.body.style.overflow = "hidden";
+
+      const interval = setInterval(() => {
+        setQuoteFading(true);
+        setTimeout(() => {
+          setQuoteIndex((i) => (i + 1) % LOADING_QUOTES.length);
+          setQuoteFading(false);
+        }, 400);
+      }, 3500);
+
+      return () => clearInterval(interval);
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [loading]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -492,8 +579,11 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
   }, [currentUser, syncStreak]);
 
   const handleLogActivity = async (hours) => {
+    const hrs = Number(hours);
+    if (!hrs || hrs <= 0) return;
+
     try {
-      const response = await activityAPI.logActivity(hours);
+      const response = await activityAPI.logActivity(hrs);
 
       if (response.ok && response.updated_metrics) {
         const metrics = response.updated_metrics;
@@ -503,7 +593,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             metrics.study_hours_per_week != null
               ? calculateWeeklyProgress(metrics.study_hours_per_week)
               : prev.weeklyProgress,
-          totalStudyHours: prev.totalStudyHours + hours,
+          totalStudyHours: prev.totalStudyHours + hrs,
         }));
       }
 
@@ -519,13 +609,32 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             gamificationResponse.gamification.streak || prev.studyStreak,
         }));
       }
+
+      showToast("success", `✅ Logged ${hrs}h study session!`);
+      setLogHours("");
     } catch (error) {
       console.error("Error logging activity:", error);
       // Update locally for better UX
       setStudyStats((prev) => ({
         ...prev,
-        totalStudyHours: prev.totalStudyHours + hours,
+        totalStudyHours: prev.totalStudyHours + hrs,
       }));
+      showToast("error", "Saved locally — couldn't sync with server.");
+      setLogHours("");
+    }
+  };
+
+  const handleLogSession = async (hours) => {
+    const h = parseFloat(hours);
+    if (!h || h <= 0 || h > 24) return;
+    setLogLoading(true);
+    try {
+      await handleLogActivity(h);
+      setLogHours("");
+      setLogSuccess(true);
+      setTimeout(() => setLogSuccess(false), 2500);
+    } finally {
+      setLogLoading(false);
     }
   };
 
@@ -605,16 +714,28 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     // Default dashboard content
     return (
       <div className="dashboard-container space-y-6">
+        {/* Activity toast */}
+        {logActivityToast && (
+          <div className={`log-toast log-toast-${logActivityToast.type}`}>
+            {logActivityToast.msg}
+          </div>
+        )}
+
         {/* Hero */}
         <div className="dashboard-hero">
           <div className="dashboard-hero-left">
-            <p className="dashboard-hero-kicker">
-              {getGreeting()}, {getFirstName()}
-            </p>
-            <h1 className="dashboard-hero-title">Your learning dashboard</h1>
-            <p className="dashboard-hero-subtitle">
-              Track your progress, plan tasks, and pick your next session.
-            </p>
+            <div className="dashboard-hero-avatar">
+              {getFirstName().charAt(0).toUpperCase()}
+            </div>
+            <div className="dashboard-hero-text">
+              <p className="dashboard-hero-kicker">
+                {getGreeting()}, {getFirstName()} 
+              </p>
+              <h1 className="dashboard-hero-title">Your learning dashboard</h1>
+              <p className="dashboard-hero-subtitle">
+                 {getTodaysTip()}
+              </p>
+            </div>
           </div>
 
           <div className="dashboard-hero-actions">
@@ -624,16 +745,16 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
               disabled={loading}
               title="Refresh dashboard"
             >
-              <FaSync className={`icon-sm mr-1 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Refreshing..." : "Refresh"}
+              <FaSync className={`icon-sm ${loading ? "animate-spin" : ""}`} />
+              <span className="btn-label">{loading ? "Refreshing..." : "Refresh"}</span>
             </button>
             <button
               className="btn btn-primary btn-sm"
               onClick={() => setCurrentSection("calendar")}
               title="Open calendar"
             >
-              <FaCalendarAlt className="icon-sm mr-1" />
-              Calendar
+              <FaCalendarAlt className="icon-sm" />
+              <span className="btn-label">Calendar</span>
             </button>
           </div>
         </div>
@@ -653,13 +774,6 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
           </div>
         )}
 
-        {loading && (
-          <div className="loading-overlay">
-            <div className="loading-spinner"></div>
-            <p>Loading dashboard...</p>
-          </div>
-        )}
-
         {error && (
           <div className="error-banner">
             <p>{error}</p>
@@ -671,13 +785,12 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             </button>
           </div>
         )}
-
-        {/* Quick Stats */}
+          {/* Quick Stats */}
         <div className="stats-grid gap-4">
           <div className="card card-blue">
             <div className="card-header">
               <div className="card-title">Flashcards</div>
-              <FaBookOpen className="icon icon-blue" />
+              <FaBookOpen className="icon-lg icon-blue" />
             </div>
             <div className="card-content-sm">
               <div className="stat-number stat-blue">
@@ -692,7 +805,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
           <div className="card card-green">
             <div className="card-header">
               <div className="card-title">Weekly Goal</div>
-              <FaBullseye className="icon icon-green" />
+              <FaBullseye className="icon-lg icon-green" />
             </div>
             <div className="card-content-sm">
               <div className="stat-number stat-green">
@@ -702,7 +815,8 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
                 <div
                   className="progress-bar"
                   style={{ width: `${studyStats.weeklyProgress}%` }}
-                ></div>
+                >
+                </div>
               </div>
             </div>
           </div>
@@ -710,11 +824,11 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
           <div className="card card-orange">
             <div className="card-header">
               <div className="card-title">Study Streak</div>
-              <FaChartLine className="icon icon-orange" />
+              <FaChartLine className="icon-lg icon-orange" />
             </div>
             <div className="card-content-sm">
               <div className="stat-number stat-orange">
-                {studyStats.studyStreak}
+                {studyStats.studyStreak} 🔥
               </div>
               <p className="text-xs text-muted">days in a row</p>
             </div>
@@ -723,7 +837,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
           <div className="card card-purple">
             <div className="card-header">
               <div className="card-title">Upcoming Tasks</div>
-              <FaClock className="icon icon-purple" />
+              <FaClock className="icon-lg icon-purple" />
             </div>
             <div className="card-content-sm">
               <div className="stat-number stat-purple">
@@ -745,10 +859,13 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             </div>
             <div className="card-content space-y-4">
               {upcomingTasksFiltered.length === 0 ? (
-                <p className="text-muted text-center py-4">No upcoming tasks</p>
+                <div className="empty-state">
+                  <div className="empty-state-icon">✅</div>
+                  <p>No upcoming tasks — you're all caught up!</p>
+                </div>
               ) : (
                 upcomingTasksFiltered.slice(0, 3).map((task) => (
-                  <div key={task.id} className="task-item">
+                  <div key={task.id} className={`task-item priority-${task.priority || "low"}`}>
                     <div className="task-content">
                       <h4 className="task-title">{task.title}</h4>
                       <p className="task-date text-muted">{task.dueDate}</p>
@@ -769,7 +886,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             </div>
           </div>
 
-          {/* Recommendations - FIXED */}
+          {/* Recommended Videos */}
           <div className="card">
             <div className="card-header">
               <div className="card-title flex items-center">
@@ -779,8 +896,9 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
             </div>
             <div className="card-content space-y-4">
               {recommendations.length === 0 ? (
-                <div className="text-center py-4">
-                  <p className="text-muted mb-2">
+                <div className="empty-state">
+                  <div className="empty-state-icon">🎬</div>
+                  <p>
                     {backendAvailable
                       ? "No recommendations available"
                       : "Backend unavailable"}
@@ -788,6 +906,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
                   <button
                     onClick={() => fetchDashboardData()}
                     className="btn btn-outline btn-sm"
+                    style={{ marginTop: "0.5rem" }}
                   >
                     <FaSync className="icon-sm mr-1" />
                     Refresh
@@ -797,17 +916,16 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
                 <>
                   {recommendations.slice(0, 3).map((video, index) => (
                     <div key={video.id || index} className="activity-item">
+                      <FaYoutube className="icon-lg icon-red" style={{ flexShrink: 0 }} />
                       <div className="activity-content">
                         <p className="activity-title">{video.title}</p>
-                        <p className="activity-time text-muted">
-                          {video.reason}
-                        </p>
+                        <p className="activity-reason">{video.reason}</p>
                       </div>
                       <a
                         href={video.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="btn btn-outline btn-sm"
+                        className="btn btn-outline-red btn-sm"
                       >
                         Watch
                       </a>
@@ -817,28 +935,301 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
               )}
             </div>
           </div>
+
+          {/* Felix AI Quick Ask */}
+          <div className="card quick-ask-card">
+            <div className="card-header">
+              <div className="card-title flex items-center">
+                <FaRobot className="icon mr-2 icon-purple" />
+                Ask Felix AI
+              </div>
+              <span className="quick-ask-badge">AI</span>
+            </div>
+            <div className="card-content quick-ask-content">
+              <p className="quick-ask-desc">
+                Ask anything about your studies. Felix will answer instantly.
+              </p>
+
+              {/* Suggested prompts */}
+              <div className="quick-ask-prompts">
+                {[
+                  "Summarise my flashcards",
+                  "What should I study today?",
+                  "Quiz me on my subjects",
+                ].map((prompt) => (
+                  <button
+                    key={prompt}
+                    className="quick-ask-prompt-btn"
+                    onClick={() => setQuickAskQuery(prompt)}
+                  >
+                    <FaBolt className="icon-sm" />
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input */}
+              <form
+                className="quick-ask-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = quickAskQuery.trim();
+                  if (!q) return;
+                  setQuickAskLoading(true);
+                  sessionStorage.setItem("felixPendingQuestion", q);
+                  setQuickAskQuery("");
+                  setTimeout(() => {
+                    setQuickAskLoading(false);
+                    setCurrentSection("chatbot");
+                  }, 300);
+                }}
+              >
+                <div className="quick-ask-input-wrap">
+                  <input
+                    type="text"
+                    className="quick-ask-input"
+                    placeholder="Type your question..."
+                    value={quickAskQuery}
+                    onChange={(e) => setQuickAskQuery(e.target.value)}
+                    disabled={quickAskLoading}
+                    maxLength={300}
+                  />
+                  <button
+                    type="submit"
+                    className="quick-ask-send"
+                    disabled={!quickAskQuery.trim() || quickAskLoading}
+                    title="Ask Felix"
+                  >
+                    {quickAskLoading
+                      ? <FaSync className="animate-spin icon-sm" />
+                      : <FaPaperPlane className="icon-sm" />}
+                  </button>
+                </div>
+              </form>
+
+              <button
+                className="btn btn-outline btn-full"
+                style={{ marginTop: "0.5rem" }}
+                onClick={() => setCurrentSection("chatbot")}
+              >
+                <FaRobot className="icon mr-2" />
+                Open Full Chat
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Gamification Badges */}
-        {gamificationData?.badges && gamificationData.badges.length > 0 && (
-          <div className="card">
+        {gamificationData && (gamificationData.badges?.length > 0 || gamificationData.level > 1) && (
+          <div className="card card-gold">
             <div className="card-header">
               <div className="card-title flex items-center">
-                <FaTrophy className="icon mr-2" />
-                Your Badges
+                <FaTrophy className="icon-lg icon-gold mr-2" />
+                Your Achievements
               </div>
+              <span className="level-badge">Lv {gamificationData.level || 1}</span>
             </div>
             <div className="card-content">
               <div className="flex flex-wrap gap-2">
-                {gamificationData.badges.map((badge, index) => (
+                {(gamificationData.badges || []).map((badge, index) => (
                   <div key={index} className="badge badge-secondary">
-                    {badge}
+                    {["🥇", "🥈", "🥉", "⭐", "🏅"][index % 5]} {badge}
                   </div>
                 ))}
+                {(!gamificationData.badges || gamificationData.badges.length === 0) && (
+                  <p style={{ fontSize: "0.85rem", color: "var(--muted-foreground)" }}>
+                    No badges yet — keep studying to earn them!
+                  </p>
+                )}
               </div>
             </div>
           </div>
         )}
+
+        {/* Performance Prediction */}
+        {(() => {
+          // ── Confidence expressed as "probability of PASSING" ──────────────
+          const rawConf = performancePrediction?.confidence || 0;
+          const isPass  = performancePrediction?.prediction === 1;
+          const passChance = Math.round(isPass ? rawConf : 100 - rawConf);
+
+          // Strip backend's embedded "(Confidence: X%)." — we show it ourselves
+          const cleanMessage = (performancePrediction?.message || "")
+            .replace(/\(Confidence:\s*[\d.]+%\)\.\s*/gi, "")
+            .trim();
+
+          // ── Factor breakdown from ml_input ────────────────────────────────
+          const ml = performancePrediction?.ml_input || {};
+
+          // Each factor: { label, value (display string), status, tip }
+          const STATUS = { good: "good", warn: "warn", bad: "bad" };
+
+          const rateStudyHours = (v) =>
+            v >= 15 ? STATUS.good : v >= 8 ? STATUS.warn : STATUS.bad;
+          const rateAttendance = (v) =>
+            v >= 80 ? STATUS.good : v >= 60 ? STATUS.warn : STATUS.bad;
+          const rateSleep = (v) =>
+            v >= 7 && v <= 9 ? STATUS.good : v >= 5.5 ? STATUS.warn : STATUS.bad;
+          const rateAssignments = (v) =>
+            v >= 80 ? STATUS.good : v >= 60 ? STATUS.warn : STATUS.bad;
+          const rateParticipation = (v) =>
+            v >= 4 ? STATUS.good : v >= 2 ? STATUS.warn : STATUS.bad;
+          const rateAbsences = (v) =>
+            v <= 2 ? STATUS.good : v <= 5 ? STATUS.warn : STATUS.bad;
+
+          const allFactors = [
+            {
+              key: "study_hours_per_week",
+              label: "Weekly study hours",
+              display: ml.study_hours_per_week != null ? `${ml.study_hours_per_week}h / wk` : null,
+              raw: ml.study_hours_per_week,
+              status: rateStudyHours(ml.study_hours_per_week ?? 0),
+              tip: "Aim for ≥ 15 hrs/week",
+            },
+            {
+              key: "attendance_percentage",
+              label: "Class attendance",
+              display: ml.attendance_percentage != null ? `${ml.attendance_percentage}%` : null,
+              raw: ml.attendance_percentage,
+              status: rateAttendance(ml.attendance_percentage ?? 0),
+              tip: "Attend ≥ 80% of classes",
+            },
+            {
+              key: "sleep_hours_per_day",
+              label: "Sleep per night",
+              display: ml.sleep_hours_per_day != null ? `${ml.sleep_hours_per_day}h` : null,
+              raw: ml.sleep_hours_per_day,
+              status: rateSleep(ml.sleep_hours_per_day ?? 0),
+              tip: "7–9 hrs is optimal",
+            },
+            {
+              key: "assignments_completed",
+              label: "Assignments done",
+              display: ml.assignments_completed != null ? `${ml.assignments_completed}%` : null,
+              raw: ml.assignments_completed,
+              status: rateAssignments(ml.assignments_completed ?? 0),
+              tip: "Complete ≥ 80% on time",
+            },
+            {
+              key: "participation_level",
+              label: "Class participation",
+              display: ml.participation_level != null ? `${ml.participation_level} / 5` : null,
+              raw: ml.participation_level,
+              status: rateParticipation(ml.participation_level ?? 0),
+              tip: "Aim for a score of 4 or 5",
+            },
+            {
+              key: "absences",
+              label: "Absences",
+              display: ml.absences != null ? `${ml.absences} days` : null,
+              raw: ml.absences,
+              status: rateAbsences(ml.absences ?? 99),
+              tip: "Keep absences ≤ 2 days",
+            },
+          ]
+            // Only show factors where the backend actually sent a value
+            .filter((f) => f.raw != null && f.display != null)
+            // Worst first so the user sees the most critical issues immediately
+            .sort((a, b) => {
+              const order = { bad: 0, warn: 1, good: 2 };
+              return order[a.status] - order[b.status];
+            });
+
+          const hasFactors = allFactors.length > 0;
+          const missingHabits =
+            !ml.sleep_hours_per_day &&
+            !ml.attendance_percentage &&
+            !ml.assignments_completed;
+
+          // Icons per status
+          const statusIcon = { good: "✅", warn: "⚠️", bad: "❌" };
+
+          return (
+            <div className={`card prediction-card${isPass ? " prediction-pass" : performancePrediction?.prediction === 0 ? " prediction-fail" : ""}`}>
+              <div className="card-header">
+                <div className="card-title flex items-center">
+                  <FaChartLine className="icon mr-2" />
+                  Performance Prediction
+                </div>
+                <span className="quick-ask-badge">AI</span>
+              </div>
+              <div className="card-content prediction-content">
+                {predictionLoading ? (
+                  <div className="prediction-loading">
+                    <div className="loading-spinner" style={{ width: 28, height: 28, marginBottom: 0 }} />
+                    <span>Analysing your data…</span>
+                  </div>
+                ) : performancePrediction?.ok ? (
+                  <div className="prediction-result">
+                    {/* Verdict + pass-chance bar */}
+                    <div className={`prediction-verdict${isPass ? " verdict-pass" : " verdict-fail"}`}>
+                      {isPass ? "🎯 Likely to Pass" : "⚠️ At Risk"}
+                    </div>
+                    <div className="prediction-confidence">
+                      <span className="confidence-label">Chance of passing</span>
+                      <div className="confidence-bar-wrap">
+                        <div className="confidence-bar-fill" style={{ width: `${passChance}%` }} />
+                      </div>
+                      <span className="confidence-pct">{passChance}%</span>
+                    </div>
+
+                    {/* ── Factor breakdown ── */}
+                    {hasFactors && (
+                      <div className="prediction-factors">
+                        <p className="prediction-factors-title">
+                          {isPass ? "What's working for you" : "What's holding you back"}
+                        </p>
+                        <div className="prediction-factors-list">
+                          {allFactors.map((f) => (
+                            <div key={f.key} className={`prediction-factor prediction-factor-${f.status}`}>
+                              <span className="factor-icon">{statusIcon[f.status]}</span>
+                              <div className="factor-body">
+                                <span className="factor-label">{f.label}</span>
+                                <span className="factor-value">{f.display}</span>
+                              </div>
+                              {f.status !== "good" && (
+                                <span className="factor-tip">{f.tip}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Generic advice message (no inline confidence text) */}
+                    {cleanMessage && !hasFactors && (
+                      <p className="prediction-message">{cleanMessage}</p>
+                    )}
+
+                    {/* Nudge to Settings if habit data is missing */}
+                    {missingHabits && (
+                      <button
+                        className="prediction-nudge"
+                        onClick={() => setCurrentSection("settings")}
+                        type="button"
+                      >
+                        📋 Add your study habits in Settings for a more accurate result →
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="empty-state" style={{ padding: "1rem 0" }}>
+                    <div className="empty-state-icon">📊</div>
+                    <p>Prediction unavailable — keep studying and check back soon!</p>
+                    <button
+                      className="prediction-nudge"
+                      onClick={() => setCurrentSection("settings")}
+                      type="button"
+                      style={{ marginTop: "0.5rem" }}
+                    >
+                      📋 Fill in your Study Habits in Settings →
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Study Stats */}
         <div className="card">
@@ -856,12 +1247,34 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
                 </p>
               </div>
               <div className="dashboard-metric">
-                <div className="dashboard-metric-value">
-                  {studyStats.weeklyGoal}
-                </div>
-                <p className="dashboard-metric-label text-muted">
-                  Weekly goal (hours)
-                </p>
+                {/* Circular progress for weekly goal */}
+                {(() => {
+                  const r = 28;
+                  const circ = 2 * Math.PI * r;
+                  const offset = circ - (studyStats.weeklyProgress / 100) * circ;
+                  return (
+                    <div className="circular-progress-wrap">
+                      <div className="circular-progress">
+                        <svg width="72" height="72" viewBox="0 0 72 72">
+                          <circle className="circular-progress-bg" cx="36" cy="36" r={r} />
+                          <circle
+                            className="circular-progress-fill"
+                            cx="36" cy="36" r={r}
+                            strokeDasharray={circ}
+                            strokeDashoffset={offset}
+                          />
+                        </svg>
+                        <div className="circular-progress-label">
+                          {studyStats.weeklyProgress}%
+                        </div>
+                      </div>
+                      <div className="circular-progress-info">
+                        <div className="metric-value">{studyStats.weeklyGoal}h</div>
+                        <div className="metric-label text-muted">Weekly goal</div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -875,33 +1288,73 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
           <div className="card-content">
             <div className="quick-actions-grid gap-4">
               <button
-                className="btn btn-blue btn-icon"
+                className="btn-action-card action-blue"
                 onClick={() => setCurrentSection("flashcards")}
               >
-                <FaBookOpen className="icon-lg mb-2" />
+                <FaBookOpen className="action-icon" />
                 Create Flashcards
               </button>
               <button
-                className="btn btn-outline btn-outline-green btn-icon"
+                className="btn-action-card action-green"
                 onClick={() => setCurrentSection("calendar")}
               >
-                <FaCalendarAlt className="icon-lg mb-2" />
+                <FaCalendarAlt className="action-icon" />
                 Schedule Study
               </button>
+              <div className={`btn-action-card action-purple log-session-card${logSuccess ? " log-success-active" : ""}`}>
+                {logSuccess ? (
+                  <>
+                    <FaCheckCircle className="action-icon log-success-icon" />
+                    <span className="log-success-label">Session logged! 🎉</span>
+                  </>
+                ) : (
+                  <>
+                    <FaClock className="action-icon" />
+                    <span className="log-card-title">Log Study</span>
+                    <div className="log-presets">
+                      {["0.5", "1", "1.5", "2"].map((h) => (
+                        <button
+                          key={h}
+                          className={`log-preset-chip${logHours === h ? " active" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); setLogHours(h); }}
+                          disabled={logLoading}
+                          type="button"
+                        >
+                          {h}h
+                        </button>
+                      ))}
+                    </div>
+                    <div className="log-input-row" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number"
+                        className="log-hours-input"
+                        placeholder="custom hrs"
+                        value={logHours}
+                        min="0.1"
+                        max="24"
+                        step="0.5"
+                        onChange={(e) => setLogHours(e.target.value)}
+                        disabled={logLoading}
+                      />
+                      <button
+                        className="log-submit-btn"
+                        onClick={(e) => { e.stopPropagation(); handleLogSession(logHours); }}
+                        disabled={!logHours || logLoading}
+                        type="button"
+                      >
+                        {logLoading ? <FaSync className="animate-spin" style={{ fontSize: "0.7rem" }} /> : "Log"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
               <button
-                className="btn btn-outline btn-outline-purple btn-icon"
-                onClick={() => handleLogActivity(1.5)}
-              >
-                <FaBullseye className="icon-lg mb-2" />
-                Log 1.5h Study
-              </button>
-              <button
-                className="btn btn-outline btn-outline-orange btn-icon"
+                className="btn-action-card action-orange"
                 onClick={() => fetchDashboardData()}
                 disabled={loading}
               >
                 <FaSync
-                  className={`icon-lg mb-2 ${loading ? "animate-spin" : ""}`}
+                  className={`action-icon ${loading ? "animate-spin" : ""}`}
                 />
                 {loading ? "Refreshing..." : "Refresh Data"}
               </button>
@@ -913,18 +1366,36 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
   };
 
   return (
-    <StudyLayout
-      currentSection={currentSection}
-      onSectionChange={(s) => setCurrentSection(s)}
-      notifications={notifications}
-      setNotifications={setNotifications}
-      showNotifications={showNotifications}
-      setShowNotifications={setShowNotifications}
-      currentUser={currentUser}
-      onLogout={handleLogout}
-    >
-      {renderContent()}
-    </StudyLayout>
+    <>
+      {loading && (
+        <div className="dashboard-fullscreen-loader">
+          <div className="loader-spinner-wrap">
+            <div className="loading-spinner"></div>
+          </div>
+          <div className={`loader-quote${quoteFading ? " fading" : ""}`}>
+            <p className="loader-quote-text">
+              "{LOADING_QUOTES[quoteIndex].quote}"
+            </p>
+            <span className="loader-quote-author">
+              — {LOADING_QUOTES[quoteIndex].author}
+            </span>
+          </div>
+          <p className="loader-label">Loading your dashboard…</p>
+        </div>
+      )}
+      <StudyLayout
+        currentSection={currentSection}
+        onSectionChange={(s) => setCurrentSection(s)}
+        notifications={notifications}
+        setNotifications={setNotifications}
+        showNotifications={showNotifications}
+        setShowNotifications={setShowNotifications}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      >
+        {renderContent()}
+      </StudyLayout>
+    </>
   );
 }
 

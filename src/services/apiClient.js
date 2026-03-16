@@ -113,6 +113,20 @@ export const chatAPI = {
     }
   },
 
+  uploadChatDocument: async (sessionId, file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await api.post(`/chat/${sessionId}/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error uploading chat document:', error);
+      throw error;
+    }
+  },
+
   sendMessage: async (sessionId, message) => {
     try {
       const response = await api.post(`/chat/${sessionId}`, { message });
@@ -440,6 +454,12 @@ export const dashboardAPI = {
       return { ok: true, notifications: [] };
     }
   },
+
+  // Client-side only — no backend endpoint for clearing notifications.
+  // Returns a resolved promise so callers can await it safely.
+  clearNotifications: async () => {
+    return { ok: true };
+  },
 };
 
 // Flashcards API - FIXED VERSION
@@ -591,12 +611,15 @@ export const flashcardAPI = {
 
   saveFlashcardProgress: async (setId, cardId, isCorrect, quality) => {
     try {
-      // Mock implementation to prevent crash - replace with real endpoint if available
-      console.log(`[FlashcardAPI] Saving progress: Card ${cardId}, Correct: ${isCorrect}, Quality: ${quality}`);
-      return { ok: true };
+      const response = await api.post(`/flashcards/${setId}/progress`, {
+        card_id: cardId,
+        is_correct: isCorrect,
+        quality: quality
+      });
+      return response.data;
     } catch (error) {
       console.error('Error saving flashcard progress:', error);
-      return { ok: false };
+      throw error;
     }
   }
 };

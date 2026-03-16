@@ -51,6 +51,18 @@ export function StudyLayout({
   const [streakPopupMessage, setStreakPopupMessage] = useState("");
   const streakPopupTimerRef = useRef(null);
 
+  // Profile picture — stored in localStorage by Settings page
+  const [profilePicture, setProfilePicture] = useState(
+    () => localStorage.getItem("aceit_profile_picture") || null
+  );
+
+  useEffect(() => {
+    const handler = () =>
+      setProfilePicture(localStorage.getItem("aceit_profile_picture") || null);
+    window.addEventListener("profilePictureUpdated", handler);
+    return () => window.removeEventListener("profilePictureUpdated", handler);
+  }, []);
+
   // Real-time data states
   const [userProfile, setUserProfile] = useState(null);
   const [gamificationData, setGamificationData] = useState(null);
@@ -367,16 +379,17 @@ export function StudyLayout({
 
       await fetchGamificationData();
 
-      await fetchReminders();
+      await fetchReminders(true); // first load — show Welcome notification once
 
       try {
-        const metricsResponse = await dashboardAPI.getUserMetrics();
-        if (metricsResponse.ok) {
+        // getUserMetrics endpoint does not exist — skipping this call.
+        // Study metrics are sourced from /profile and /log_activity responses.
+        if (false) {
           setStudyMetrics({
-            totalStudyHours: metricsResponse.total_study_hours || 0,
-            weeklyGoal: metricsResponse.weekly_goal || 100,
-            weeklyProgress: metricsResponse.weekly_goal_progress || 0,
-            attendancePercentage: metricsResponse.attendance_percentage || 0,
+            totalStudyHours: 0,
+            weeklyGoal: 100,
+            weeklyProgress: 0,
+            attendancePercentage: 0,
           });
         }
       } catch (error) {
@@ -413,11 +426,12 @@ export function StudyLayout({
     }
   };
 
-  const fetchReminders = async () => {
+  const fetchReminders = async (isFirstLoad = false) => {
     try {
       const response = await remindersAPI.getReminders();
       if (response.ok) {
-        const reminderNotifications = response.reminders
+        // Build fresh reminder notifications from the backend response.
+        const incomingReminders = response.reminders
           .filter((r) => !r.completed)
           .map((r) => ({
             id: `reminder-${r.id}`,
@@ -429,23 +443,46 @@ export function StudyLayout({
             data: r,
           }));
 
-        const systemNotifications = [
-          {
-            id: `system-${Date.now()}`,
-            title: "Welcome to AceIt!",
-            message: "Your smart learning journey starts now.",
-            time: "Just now",
-            type: "welcome",
-            read: false,
-          },
-        ];
-
-        const allNotifications = [
-          ...reminderNotifications,
-          ...systemNotifications,
-        ];
         if (setNotifications) {
-          setNotifications(allNotifications);
+          setNotifications((prev) => {
+            // Keep all non-reminder notifications (streaks, achievements, welcome)
+            // exactly as they are — including their read state.
+            const nonReminders = prev.filter(
+              (n) => !n.id.startsWith("reminder-")
+            );
+
+            // For reminder notifications, preserve the read state the user already
+            // set so that re-polling doesn't flip them back to unread.
+            const prevReminderReadState = new Map(
+              prev
+                .filter((n) => n.id.startsWith("reminder-"))
+                .map((n) => [n.id, n.read])
+            );
+            const mergedReminders = incomingReminders.map((n) => ({
+              ...n,
+              read: prevReminderReadState.get(n.id) ?? false,
+            }));
+
+            // Welcome notification — add only once on first load.
+            const alreadyHasWelcome = prev.some((n) =>
+              n.id.startsWith("system-welcome")
+            );
+            const welcomeNotif =
+              isFirstLoad && !alreadyHasWelcome
+                ? [
+                    {
+                      id: "system-welcome",
+                      title: "Welcome to AceIt! 👋",
+                      message: "Your smart learning journey starts now.",
+                      time: "Just now",
+                      type: "welcome",
+                      read: false,
+                    },
+                  ]
+                : [];
+
+            return [...welcomeNotif, ...mergedReminders, ...nonReminders];
+          });
         }
       }
     } catch (error) {
@@ -468,22 +505,14 @@ export function StudyLayout({
     return `In ${diffDays} days`;
   };
 
-  const handleMarkAsRead = async (notificationId) => {
-    try {
-      const updatedNotifications = notifications.map((n) =>
-        n.id === notificationId ? { ...n, read: true } : n
+  const handleMarkAsRead = (notificationId) => {
+    // Only dismiss the notification visually — do NOT complete the underlying
+    // reminder on the backend. Completing a reminder is a separate, explicit
+    // action the user must take (e.g. from the Calendar / task list).
+    if (setNotifications) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
       );
-
-      if (setNotifications) {
-        setNotifications(updatedNotifications);
-      }
-
-      if (notificationId.startsWith("reminder-")) {
-        const reminderId = notificationId.replace("reminder-", "");
-        await remindersAPI.completeReminder(reminderId);
-      }
-    } catch (error) {
-      console.error("Error marking notification as read:", error);
     }
   };
 
@@ -761,10 +790,11 @@ export function StudyLayout({
             }`}
           >
             <div className="avatar">
-              {currentUser?.photoURL ? (
+              {/* Prefer locally-uploaded picture → Firebase photoURL → initials */}
+              {(profilePicture || currentUser?.photoURL) ? (
                 <img
                   className="avatar-image"
-                  src={currentUser.photoURL}
+                  src={profilePicture || currentUser.photoURL}
                   alt="Profile"
                   onError={(e) => {
                     e.target.style.display = "none";
@@ -774,7 +804,9 @@ export function StudyLayout({
               ) : null}
               <div
                 className="avatar-fallback"
-                style={{ display: currentUser?.photoURL ? "none" : "flex" }}
+                style={{
+                  display: (profilePicture || currentUser?.photoURL) ? "none" : "flex",
+                }}
               >
                 {getUserInitial()}
               </div>
@@ -986,11 +1018,11 @@ export function StudyLayout({
                     {notifications.length === 0 ? (
                       <p className="notification-empty">No new notifications</p>
                     ) : (
-                      notifications.map((notification, index) => (
+                      notifications.map((notification) => (
                         <div
-                          key={index}
+                          key={notification.id}
                           className={`notification-item ${
-                            notification.read ? "opacity-60" : ""
+                            notification.read ? "read" : ""
                           }`}
                           onClick={() => handleMarkAsRead(notification.id)}
                         >

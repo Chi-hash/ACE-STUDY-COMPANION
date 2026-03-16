@@ -682,6 +682,10 @@
   justify-content: space-between;
   align-items: center;
   position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--notification-panel-bg);
+  border-radius: 0.5rem 0.5rem 0 0;
 }
 
 .notifications-header-title {
@@ -717,6 +721,10 @@
 
 .notification-item:hover {
   background-color: var(--nav-button-hover);
+}
+
+.notification-item.read {
+  opacity: 0.55;
 }
 
 .notifications-close {

@@ -245,10 +245,16 @@ Library Resources: ${docTitles}
     }
   };
 
-  const handleSend = async () => {
-    const trimmed = input.trim();
+  const handleSend = async (textOverride = null, options = {}) => {
+    const { sessionOverride = null, forceSend = false } = options;
+    const textToUse = textOverride !== null ? textOverride : input;
+    const targetSessionId = sessionOverride || activeSessionId;
+    const trimmed = textToUse.trim();
     const hasAttachments = attachments.length > 0;
-    if ((!trimmed && !hasAttachments) || !activeSessionId || isSending) return;
+    
+    // If not forcing, we do the standard isSending check
+    if ((!trimmed && !hasAttachments) || !targetSessionId || (!forceSend && isSending)) return;
+    
     setIsSending(true);
     setError("");
 
@@ -286,12 +292,29 @@ Library Resources: ${docTitles}
       : null;
 
     setMessages((prev) => [...prev, ...attachmentMessages, ...(userMessage ? [userMessage] : [])]);
-    setInput("");
+    if (textOverride === null) {
+      setInput("");
+    }
     setAttachments([]);
     setSelectedResourceIds([]);
 
     try {
-      const response = await chatAPI.sendMessage(activeSessionId, messagePayload);
+      const uploadableAttachments = attachments.filter(
+        (file) => file.type === "file" && file.rawFile
+      );
+      if (uploadableAttachments.length) {
+        const uploadResults = await Promise.allSettled(
+          uploadableAttachments.map((file) =>
+            chatAPI.uploadChatDocument(targetSessionId, file.rawFile)
+          )
+        );
+        const failedUploads = uploadResults.filter((r) => r.status === "rejected");
+        if (failedUploads.length) {
+          setError("Some attachments failed to upload. Message sent without them.");
+        }
+      }
+
+      const response = await chatAPI.sendMessage(targetSessionId, messagePayload);
       const replyText = response.response || response.reply || response.message || response.answer || "";
       if (!replyText) throw new Error("Empty response");
       
@@ -303,14 +326,19 @@ Library Resources: ${docTitles}
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      if (activeSession?.title === "New chat" && trimmed) {
-        const nextTitle = trimmed.slice(0, 40);
-        const updatedSessions = sessions.map((session) =>
-          session.id === activeSessionId ? { ...session, title: nextTitle } : session,
-        );
-        setSessions(updatedSessions);
-        saveSessions(updatedSessions);
-      }
+      // Only auto-rename if it was the default "New chat" and not a forced session with text
+      setSessions((prevSessions) => {
+        const targetSession = prevSessions.find(s => s.id === targetSessionId);
+        if (!sessionOverride && targetSession?.title === "New chat" && trimmed) {
+          const nextTitle = trimmed.slice(0, 40);
+          const updated = prevSessions.map((session) =>
+            session.id === targetSessionId ? { ...session, title: nextTitle } : session,
+          );
+          saveSessions(updated);
+          return updated;
+        }
+        return prevSessions;
+      });
     } catch (err) {
       console.error("Send message error:", err);
       setError("Message failed. Please try again.");
@@ -430,6 +458,7 @@ Library Resources: ${docTitles}
       extension,
       previewable,
       previewUrl: previewable ? URL.createObjectURL(file) : "",
+      rawFile: file,
     };
   };
 
@@ -446,6 +475,47 @@ Library Resources: ${docTitles}
       return prev.filter((file) => file.id !== id);
     });
   };
+
+  // Handle pending question from dashboard by forcing a new session
+  useEffect(() => {
+    const pendingQ = sessionStorage.getItem("felixPendingQuestion");
+    if (!pendingQ || isSending) return;
+
+    const processPendingQuestion = async () => {
+      sessionStorage.removeItem("felixPendingQuestion");
+      
+      try {
+        // Force a new session
+        const response = await chatAPI.createChatSession();
+        const newId = response.session_id || response.sessionId || response.id || null;
+        if (!newId) throw new Error("No session id returned");
+        
+        const newSession = {
+          id: newId,
+          title: pendingQ.slice(0, 40),
+          createdAt: new Date().toISOString(),
+        };
+        
+        const updated = [newSession, ...sessions];
+        setSessions(updated);
+        saveSessions(updated);
+        setActiveSessionId(newId);
+        setMessages([]);
+        setShowMobileSidebar(false);
+
+        // Wait for React to apply the activeSessionId state
+        setTimeout(() => {
+          handleSend(pendingQ, { sessionOverride: newId, forceSend: true });
+        }, 300);
+
+      } catch (err) {
+        console.error("Failed to process quick ask:", err);
+      }
+    };
+
+    processPendingQuestion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount
 
   return (
     <div className={`chatbot-page ${!isDesktopSidebarOpen ? "desktop-sidebar-closed" : ""}`}>

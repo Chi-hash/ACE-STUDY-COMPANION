@@ -40,12 +40,9 @@
 
 .chatbot-sidebar {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  padding: 1.25rem;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
   height: calc(100vh - 4rem);
   position: fixed;
   top: 4rem;
@@ -75,9 +72,14 @@
 }
 
 .chatbot-sidebar-header {
+  padding: 1.1rem 1.5rem;
+  min-height: 72px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  align-items: center;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
 }
 
 .chatbot-sidebar-header h3 {
@@ -85,15 +87,23 @@
   font-weight: 700;
 }
 
-.chatbot-sidebar-header p {
+.chatbot-sidebar-header p, .chatbot-subtitle {
   color: var(--muted-foreground);
   font-size: 0.85rem;
+  padding: 0 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.chatbot-sidebar .chatbot-btn.primary {
+  margin: 1.25rem 1.5rem;
 }
 
 .chatbot-session-list {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  padding: 0 1.5rem 1.5rem 1.5rem;
+  overflow-y: auto;
 }
 
 .chatbot-session-group {
@@ -223,8 +233,8 @@
 
 .chatbot-panel {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 1rem;
+  border: none;
+  border-radius: 0;
   min-height: 0;
   height: 100%;
   display: flex;
@@ -235,6 +245,8 @@
 
 .chatbot-header {
   padding: 1.1rem 1.5rem;
+  min-height: 72px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -524,6 +536,13 @@
   font-family: inherit;
   outline: none;
   transition: color 0.3s ease;
+}
+
+/* Dark mode: chatbot textarea is transparent inside its styled container */
+.dark .chatbot-input textarea {
+  background: transparent;
+  color: var(--foreground);
+  border-color: transparent;
 }
 
 .chatbot-hidden-input {

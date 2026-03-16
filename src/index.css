@@ -5,6 +5,14 @@
   font-optical-sizing: auto;
   font-weight: 300;
   font-style: normal;
+
+  /* Hide scrollbars everywhere — content still scrollable */
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE / Edge legacy */
+}
+
+*::-webkit-scrollbar {
+  display: none;                /* Chrome, Safari, Edge */
 }
 
 /* globals.css - Definitions for the AceIt Color Palette */
@@ -58,4 +66,37 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ─── Dark mode: all form inputs use a light surface with black text ─────────
+   Rule kept at low specificity (0,1,1) so any component-level class override
+   with specificity (0,2,0) or higher can still win.
+   Transparent / special controls are restored in the blocks below.
+   ─────────────────────────────────────────────────────────────────────────── */
+.dark input,
+.dark textarea,
+.dark select {
+  color: #0f172a;
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+/* Restore native controls that must NOT get a white box */
+.dark input[type="checkbox"],
+.dark input[type="radio"] {
+  background-color: revert;
+  color: revert;
+  border-color: revert;
+}
+
+.dark input[type="range"] {
+  background-color: transparent;
+  color: var(--foreground);
+  border-color: transparent;
+}
+
+.dark input[type="file"],
+.dark input[type="color"] {
+  background-color: #f8fafc;
+  color: #0f172a;
 }
