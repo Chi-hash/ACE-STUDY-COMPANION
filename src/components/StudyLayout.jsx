@@ -51,6 +51,14 @@ export function StudyLayout({
   const [streakPopupMessage, setStreakPopupMessage] = useState("");
   const streakPopupTimerRef = useRef(null);
 
+  // ── Inactivity auto-logout ────────────────────────────────────────────────
+  const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
+  const WARNING_BEFORE   =  2 * 60 * 1000; // warn 2 minutes before
+  const [showInactivityWarning, setShowInactivityWarning] = useState(false);
+  const [inactivityCountdown, setInactivityCountdown] = useState(120);
+  const inactivityTimerRef   = useRef(null);
+  const countdownIntervalRef = useRef(null);
+
   // Profile picture — stored in localStorage by Settings page
   const [profilePicture, setProfilePicture] = useState(
     () => localStorage.getItem("aceit_profile_picture") || null
@@ -553,6 +561,73 @@ export function StudyLayout({
     setLogoutProgress(0);
   };
 
+  // ── Inactivity timer helpers ──────────────────────────────────────────────
+  const startCountdown = useCallback(() => {
+    setInactivityCountdown(120);
+    setShowInactivityWarning(true);
+    clearInterval(countdownIntervalRef.current);
+    countdownIntervalRef.current = setInterval(() => {
+      setInactivityCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownIntervalRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    clearTimeout(inactivityTimerRef.current);
+    clearInterval(countdownIntervalRef.current);
+    setShowInactivityWarning(false);
+    setInactivityCountdown(120);
+
+    inactivityTimerRef.current = setTimeout(() => {
+      startCountdown();
+    }, INACTIVITY_LIMIT - WARNING_BEFORE);
+  }, [startCountdown, INACTIVITY_LIMIT, WARNING_BEFORE]);
+
+  // Auto-logout when countdown hits 0
+  useEffect(() => {
+    if (inactivityCountdown === 0 && showInactivityWarning) {
+      setShowInactivityWarning(false);
+      handleLogout();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inactivityCountdown, showInactivityWarning]);
+
+  // Set up activity listeners + visibility handling
+  useEffect(() => {
+    const EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"];
+
+    const onActivity = () => {
+      if (!showInactivityWarning) resetInactivityTimer();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        resetInactivityTimer();
+      } else {
+        // Pause the warning/timer when tab is hidden
+        clearTimeout(inactivityTimerRef.current);
+        clearInterval(countdownIntervalRef.current);
+      }
+    };
+
+    EVENTS.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    resetInactivityTimer();
+
+    return () => {
+      EVENTS.forEach((e) => window.removeEventListener(e, onActivity));
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearTimeout(inactivityTimerRef.current);
+      clearInterval(countdownIntervalRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInactivityWarning]);
+
   const handleLogout = async () => {
     if (isLoggingOut) return;
 
@@ -574,9 +649,23 @@ export function StudyLayout({
 
       await signOut(auth);
 
-      localStorage.removeItem("aceit_current_user");
-      localStorage.removeItem("aceit_auth_token");
-      localStorage.removeItem("theme");
+      [
+        "aceit_current_user",
+        "aceit_auth_token",
+        "firebase_token",
+        "userData",
+        "ace-it-flashcards",
+        "ace-it-review-data",
+        "ace-it-resources",
+        "ace-it-resource-subjects",
+        "ace-it-library-subject-map",
+        "ace-summary-titles",
+        "quiz_history",
+        "aceit_settings",
+        "aceit_profile_picture",
+        "ace-it-voice-enabled",
+        "ace-it-chat-sessions",
+      ].forEach((key) => localStorage.removeItem(key));
 
       setUserProfile(null);
       setGamificationData(null);
@@ -657,6 +746,39 @@ export function StudyLayout({
 
   return (
     <div className="study-layout">
+      {/* Inactivity Warning Modal */}
+      {showInactivityWarning && (
+        <div className="inactivity-overlay">
+          <div className="inactivity-modal">
+            <div className="inactivity-icon">
+              <FaClock />
+            </div>
+            <h3 className="inactivity-title">Still there?</h3>
+            <p className="inactivity-body">
+              You've been inactive for a while. You'll be logged out in
+            </p>
+            <div className="inactivity-countdown">
+              {Math.floor(inactivityCountdown / 60)}:
+              {String(inactivityCountdown % 60).padStart(2, "0")}
+            </div>
+            <div className="inactivity-actions">
+              <button
+                className="inactivity-btn-stay"
+                onClick={resetInactivityTimer}
+              >
+                Stay logged in
+              </button>
+              <button
+                className="inactivity-btn-logout"
+                onClick={() => { setShowInactivityWarning(false); confirmLogout(); }}
+              >
+                Log out now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="logout-modal-overlay">

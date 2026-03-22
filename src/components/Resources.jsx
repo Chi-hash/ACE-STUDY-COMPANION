@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { FaTimes, FaDownload, FaExternalLinkAlt } from "react-icons/fa";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { FaTimes, FaDownload, FaExternalLinkAlt, FaFileAlt, FaChevronDown, FaChevronUp, FaTrash, FaUpload } from "react-icons/fa";
 import "../styles/resources.css";
 import { libraryAPI, recommendationsAPI, summaryAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
@@ -10,6 +10,12 @@ const DEFAULT_SORT = ["Newest", "Oldest", "A-Z"];
 const API_BASE_URL = "https://student-success-backend.onrender.com";
 const SUBJECTS_KEY = "ace-it-resource-subjects";
 const SUBJECT_MAP_KEY = "ace-it-library-subject-map";
+
+const getYouTubeEmbedUrl = (url) => {
+  if (!url) return null;
+  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?#]+)/);
+  return match ? `https://www.youtube.com/embed/${match[1]}` : null;
+};
 
 const inferType = (item) => {
   const raw =
@@ -168,9 +174,71 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
   const [summaries, setSummaries] = useState([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState("");
+  const [summaryUploadError, setSummaryUploadError] = useState("");
   const [summaryUploading, setSummaryUploading] = useState(false);
+  const [expandedSummaryId, setExpandedSummaryId] = useState(null);
+  const [summaryTitleCache, setSummaryTitleCache] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("ace-summary-titles") || "{}"); }
+    catch { return {}; }
+  });
+  const [notification, setNotification] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const blobUrlRef = useRef(null);
   const fileInputRef = useRef(null);
   const summaryInputRef = useRef(null);
+  const notifTimerRef = useRef(null);
+
+  const showNotification = useCallback((msg) => {
+    setNotification(msg);
+    if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
+    notifTimerRef.current = setTimeout(() => setNotification(""), 3500);
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+    setPreviewResource(null);
+  }, []);
+
+  const handleOpenPreview = useCallback(async (resource) => {
+    if (!resource.url) {
+      showNotification("No file link available for this resource yet.");
+      return;
+    }
+
+    // YouTube and generic external links don't need blob fetching
+    if (getYouTubeEmbedUrl(resource.url)) {
+      setPreviewResource(resource);
+      return;
+    }
+
+    setPreviewLoading(true);
+    try {
+      const user = auth.currentUser;
+      const headers = {};
+      if (user) {
+        const token = await user.getIdToken();
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(resource.url, { headers });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const blob = await response.blob();
+      // Revoke any previous blob URL before creating a new one
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = URL.createObjectURL(blob);
+
+      setPreviewResource({ ...resource, blobUrl: blobUrlRef.current });
+    } catch {
+      // Fall back to the raw URL — at least the modal will open
+      setPreviewResource(resource);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [showNotification]);
 
   useEffect(() => {
     const loadSaved = () => {
@@ -306,7 +374,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
           null,
         source: "Library",
       })),
-    [documents],
+    [documents, subjectMap],
   );
 
   const normalizedRecs = useMemo(
@@ -412,15 +480,63 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
 
   const handleSummaryUpload = async (file) => {
     if (!file) return;
+
+    const maxSizeMB = 10;
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      setSummaryUploadError(`File is too large. Please upload a file under ${maxSizeMB} MB.`);
+      return;
+    }
+
     setSummaryUploading(true);
-    setSummaryError("");
+    setSummaryUploadError("");
+    const existingIds = new Set(summaries.map((s) => s.id));
+    const displayName = file.name.replace(/\.[^.]+$/, "");
     try {
-      await summaryAPI.generateSummary(file);
+      const result = await summaryAPI.generateSummary(file);
+      const summaryText = result?.summary || result?.response || result?.content || "";
+      const looksLikeError =
+        summaryText.toLowerCase().includes("forgot to include") ||
+        summaryText.toLowerCase().includes("no notes") ||
+        summaryText.toLowerCase().includes("please provide") ||
+        summaryText.toLowerCase().includes("i can't create") ||
+        summaryText.toLowerCase().includes("i'm sorry") ||
+        summaryText.toLowerCase().includes("however") ||
+        summaryText.toLowerCase().includes("all model attempts failed") ||
+        summaryText.toLowerCase().includes("not json serializable") ||
+        summaryText.toLowerCase().includes("object of type bytes");
+      if (looksLikeError) {
+        setSummaryUploadError(
+          "The server couldn't extract text from this file. Try a PDF or plain .txt file for best results."
+        );
+        // Auto-delete the bad summary record the backend just saved
+        const afterResponse = await summaryAPI.getSummaries();
+        const badSummary = (afterResponse.summaries || []).find((s) => !existingIds.has(s.id));
+        if (badSummary) {
+          await summaryAPI.deleteSummary(badSummary.id);
+        }
+        return;
+      }
       const response = await summaryAPI.getSummaries();
-      setSummaries(response.summaries || []);
+      const fetchedSummaries = response.summaries || [];
+
+      const newSummary = fetchedSummaries.find((s) => !existingIds.has(s.id));
+      if (newSummary && !newSummary.title) {
+        const updated = { ...summaryTitleCache, [newSummary.id]: displayName };
+        setSummaryTitleCache(updated);
+        localStorage.setItem("ace-summary-titles", JSON.stringify(updated));
+      }
+
+      setSummaries(fetchedSummaries);
     } catch (err) {
       console.error("Summary generation failed:", err);
-      setSummaryError("Could not generate summary.");
+      const status = err?.response?.status;
+      if (status === 413) {
+        setSummaryUploadError("File is too large for the server. Try a smaller file.");
+      } else if (err.code === "ECONNABORTED") {
+        setSummaryUploadError("Request timed out — try a smaller or simpler file.");
+      } else {
+        setSummaryUploadError("Could not generate summary. Try a PDF file under 5 MB.");
+      }
     } finally {
       setSummaryUploading(false);
       if (summaryInputRef.current) summaryInputRef.current.value = "";
@@ -431,6 +547,12 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
     try {
       await summaryAPI.deleteSummary(summaryId);
       setSummaries((prev) => prev.filter((item) => item.id !== summaryId));
+      setSummaryTitleCache((prev) => {
+        const updated = { ...prev };
+        delete updated[summaryId];
+        localStorage.setItem("ace-summary-titles", JSON.stringify(updated));
+        return updated;
+      });
     } catch (err) {
       console.error("Summary delete failed:", err);
       setSummaryError("Failed to delete summary.");
@@ -576,29 +698,49 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
 
   return (
     <div className="resources-page">
-      <header className="resources-header">
-        <div className="resources-header-text">
-          <h2>Resources</h2>
-          <p>
+      {/* Stat overview — first thing visible under the nav */}
+      <section className="resources-overview">
+        <div className="resources-overview-card">
+          <p>Library</p>
+          <h3>{normalizedLibrary.length}</h3>
+        </div>
+        <div className="resources-overview-card">
+          <p>Saved</p>
+          <h3>{normalizedSaved.length}</h3>
+        </div>
+        <div className="resources-overview-card">
+          <p>Recommended</p>
+          <h3>{normalizedRecs.length}</h3>
+        </div>
+        <div className="resources-overview-card">
+          <p>Summaries</p>
+          <h3>{summaries.length}</h3>
+        </div>
+      </section>
+
+      {/* Action toolbar */}
+      <div className="resources-header-wrapper">
+        <div className="resources-header">
+          <p className="resources-subtitle">
             Curate study materials, organize by subject, and return anytime.
           </p>
+          <div className="resources-actions">
+            <button
+              className="resources-btn outline"
+              onClick={handleUploadClick}
+              disabled={uploading}
+            >
+              {uploading ? "Uploading..." : "Upload Document"}
+            </button>
+            <button
+              className="resources-btn primary"
+              onClick={() => setActiveTab("saved")}
+            >
+              View Saved
+            </button>
+          </div>
         </div>
-        <div className="resources-actions">
-          <button
-            className="resources-btn outline"
-            onClick={handleUploadClick}
-            disabled={uploading}
-          >
-            {uploading ? "Uploading..." : "Upload Document"}
-          </button>
-          <button
-            className="resources-btn primary"
-            onClick={() => setActiveTab("saved")}
-          >
-            View Saved
-          </button>
-        </div>
-      </header>
+      </div>
 
       {showSubjectModal && (
         <div className="resources-modal-backdrop">
@@ -707,25 +849,6 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
         </div>
       )}
 
-      <section className="resources-overview">
-        <div className="resources-overview-card">
-          <p>Library</p>
-          <h3>{normalizedLibrary.length}</h3>
-        </div>
-        <div className="resources-overview-card">
-          <p>Saved</p>
-          <h3>{normalizedSaved.length}</h3>
-        </div>
-        <div className="resources-overview-card">
-          <p>Recommended</p>
-          <h3>{normalizedRecs.length}</h3>
-        </div>
-        <div className="resources-overview-card">
-          <p>Summaries</p>
-          <h3>{summaries.length}</h3>
-        </div>
-      </section>
-
       <section className="resources-controls">
         <div className="resources-search">
           <input
@@ -780,27 +903,40 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
       <section className="resources-grid">
         {activeTab === "summaries" ? (
           <div className="resources-summary-panel">
-            <div className="resources-summary-actions">
+            <div className={`summary-upload-zone ${summaryUploadError ? "summary-upload-zone--error" : ""}`}>
               <input
                 ref={summaryInputRef}
                 type="file"
                 className="resources-hidden-input"
                 accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
-                onChange={(e) =>
-                  handleSummaryUpload((e.target.files || [])[0])
-                }
+                onChange={(e) => {
+                  setSummaryUploadError("");
+                  handleSummaryUpload((e.target.files || [])[0]);
+                }}
               />
+              <div className="summary-upload-icon">
+                <FaFileAlt />
+              </div>
+              <p className="summary-upload-label">
+                {summaryUploading ? "Generating summary…" : "Drop a document to summarize"}
+              </p>
+              <p className="summary-upload-hint">PDF, Word, PowerPoint or Excel &mdash; max 10 MB</p>
+              {summaryUploadError && (
+                <p className="summary-upload-error">{summaryUploadError}</p>
+              )}
               <button
                 className="resources-btn primary"
                 onClick={() => summaryInputRef.current?.click()}
                 disabled={summaryUploading}
               >
-                {summaryUploading ? "Generating..." : "Upload for Summary"}
+                <FaUpload style={{ marginRight: "0.4rem" }} />
+                {summaryUploading ? "Generating…" : "Choose File"}
               </button>
             </div>
+
             {summaryLoading ? (
               <div className="resources-empty">
-                <h3>Loading summaries...</h3>
+                <h3>Loading summaries…</h3>
                 <p>Fetching your saved summaries.</p>
               </div>
             ) : summaryError ? (
@@ -811,38 +947,67 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
             ) : summaries.length === 0 ? (
               <div className="resources-empty">
                 <h3>No summaries yet</h3>
-                <p>Upload a document to generate your first summary.</p>
+                <p>Upload a document above to generate your first AI summary.</p>
               </div>
             ) : (
-              <div className="resources-subjects">
-                {summaries.map((summary) => (
-                  <article key={summary.id} className="resource-card">
-                    <div className="resource-card-header">
-                      <span className="resource-type">Summary</span>
-                      <span className="resource-date">
-                        {summary.created_at
-                          ? new Date(summary.created_at).toLocaleDateString()
-                          : "Recently"}
-                      </span>
-                    </div>
-                    <div className="resource-card-body">
-                      <h4 className="resource-title">
-                        {summary.title || "Summary"}
+              <div className="summary-cards-list">
+                {summaries.filter((summary) => {
+                  const t = (summary.summary || summary.response || "").toLowerCase();
+                  return !t.includes("all model attempts failed") &&
+                    !t.includes("not json serializable") &&
+                    !t.includes("forgot to include") &&
+                    !t.includes("i'm sorry") &&
+                    !t.includes("object of type bytes");
+                }).map((summary) => {
+                  const isExpanded = expandedSummaryId === summary.id;
+                  const fullText = summary.summary || "No summary content.";
+                  const preview = fullText.slice(0, 180).trimEnd() + (fullText.length > 180 ? "…" : "");
+                  return (
+                    <article key={summary.id} className={`summary-card ${isExpanded ? "summary-card--expanded" : ""}`}>
+                      <div className="summary-card-top">
+                        <div className="summary-card-icon">
+                          <FaFileAlt />
+                        </div>
+                        <div className="summary-card-meta">
+                          <span className="summary-badge">Summary</span>
+                          <span className="summary-date">
+                            {summary.created_at
+                              ? new Date(summary.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                              : "Recently"}
+                          </span>
+                        </div>
+                        <button
+                          className="summary-delete-btn"
+                          onClick={() => handleDeleteSummary(summary.id)}
+                          title="Delete summary"
+                        >
+                          <FaTrash />
+                        </button>
+                      </div>
+
+                      <h4 className="summary-card-title">
+                        {summary.title || summaryTitleCache[summary.id] || "Untitled Summary"}
                       </h4>
-                      <p className="resource-description">
-                        {summary.summary || "No summary content"}
+
+                      <p className="summary-card-preview">
+                        {isExpanded ? fullText : preview}
                       </p>
-                    </div>
-                    <div className="resource-card-actions">
-                      <button
-                        className="resources-btn danger"
-                        onClick={() => handleDeleteSummary(summary.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))}
+
+                      {fullText.length > 180 && (
+                        <button
+                          className="summary-toggle-btn"
+                          onClick={() => setExpandedSummaryId(isExpanded ? null : summary.id)}
+                        >
+                          {isExpanded ? (
+                            <><FaChevronUp style={{ marginRight: "0.35rem" }} /> Show less</>
+                          ) : (
+                            <><FaChevronDown style={{ marginRight: "0.35rem" }} /> Read full summary</>
+                          )}
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -882,23 +1047,25 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
                   {resources.map((resource) => (
                     <article key={resource.id} className="resource-card">
                       <div className="resource-card-header">
-                        <div className="resource-selection">
-                          <input
-                            type="checkbox"
-                            checked={selectedResourceIds.includes(resource.id)}
-                            onChange={(e) => {
-                              const isChecked = e.target.checked;
-                              setSelectedResourceIds((prev) =>
-                                isChecked
-                                  ? [...prev, resource.id]
-                                  : prev.filter((id) => id !== resource.id),
-                              );
-                            }}
-                          />
+                        <div className="resource-card-meta">
+                          <div className="resource-selection">
+                            <input
+                              type="checkbox"
+                              checked={selectedResourceIds.includes(resource.id)}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setSelectedResourceIds((prev) =>
+                                  isChecked
+                                    ? [...prev, resource.id]
+                                    : prev.filter((id) => id !== resource.id),
+                                );
+                              }}
+                            />
+                          </div>
+                          <span className={`resource-type resource-type--${(resource.type || "document").toLowerCase()}`}>
+                            {resource.type || "Document"}
+                          </span>
                         </div>
-                        <span className="resource-type">
-                          {resource.type || "Document"}
-                        </span>
                         <span className="resource-date">
                           {resource.createdAt
                             ? new Date(resource.createdAt).toLocaleDateString()
@@ -914,15 +1081,10 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
                       <div className="resource-actions">
                 <button
                   className="resources-btn ghost"
-                  onClick={() => {
-                    if (!resource.url) {
-                      setError("No file link available for this resource yet.");
-                      return;
-                    }
-                    setPreviewResource(resource);
-                  }}
+                  onClick={() => handleOpenPreview(resource)}
+                  disabled={previewLoading}
                 >
-                  View
+                  {previewLoading ? "Loading..." : "View"}
                 </button>
                         {activeTab !== "saved" && (
                           <button
@@ -955,65 +1117,109 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
 
       {/* Resource Preview Modal */}
       {previewResource && (
-        <div className="resource-preview-overlay" onClick={() => setPreviewResource(null)}>
+        <div className="resource-preview-overlay" onClick={handleClosePreview}>
           <div className="resource-preview-header" onClick={(e) => e.stopPropagation()}>
             <h3 className="resource-preview-title">{previewResource.title}</h3>
-            <button className="resource-preview-close" onClick={() => setPreviewResource(null)}>
-              <FaTimes />
-            </button>
+            <div className="resource-preview-actions">
+              <a
+                href={previewResource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="resource-preview-action-btn"
+                title="Open in new tab"
+              >
+                <FaExternalLinkAlt />
+              </a>
+              <a
+                href={previewResource.blobUrl || previewResource.url}
+                download={previewResource.title}
+                className="resource-preview-action-btn"
+                title="Download"
+              >
+                <FaDownload />
+              </a>
+              <button className="resource-preview-close" onClick={handleClosePreview}>
+                <FaTimes />
+              </button>
+            </div>
           </div>
           <div className="resource-preview-content" onClick={(e) => e.stopPropagation()}>
             {(() => {
-              const url = previewResource.url;
+              // Always prefer the blob URL (no Content-Disposition headers)
+              const displayUrl = previewResource.blobUrl || previewResource.url;
+              const originalUrl = previewResource.url;
               const type = previewResource.type?.toLowerCase();
-              const extension = url.split('.').pop().toLowerCase().split('?')[0];
-              
+              const knownExts = ['pdf','jpg','jpeg','png','gif','webp','svg','mp4','webm','ogg','doc','docx','ppt','pptx','xls','xlsx'];
+              const rawExt = originalUrl.split('?')[0].split('.').pop()?.toLowerCase() || '';
+              const extension = knownExts.includes(rawExt) ? rawExt : '';
+
               const isImage = type === 'image' || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension);
               const isVideo = type === 'video' || ['mp4', 'webm', 'ogg'].includes(extension);
               const isPdf = type === 'pdf' || extension === 'pdf';
               const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(extension);
+              const youtubeEmbedUrl = getYouTubeEmbedUrl(originalUrl);
 
-              if (isImage) {
+              if (youtubeEmbedUrl) {
                 return (
-                  <img src={url} alt={previewResource.title} className="resource-preview-image" />
+                  <iframe
+                    src={youtubeEmbedUrl}
+                    title={previewResource.title}
+                    className="resource-preview-frame"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                );
+              } else if (isImage) {
+                return (
+                  <img src={displayUrl} alt={previewResource.title} className="resource-preview-image" />
                 );
               } else if (isVideo) {
-                 return (
+                return (
                   <video controls className="resource-preview-video">
-                    <source src={url} />
+                    <source src={displayUrl} />
                     Your browser does not support the video tag.
                   </video>
                 );
               } else if (isPdf) {
-                 return (
-                  <iframe src={url} title={previewResource.title} className="resource-preview-frame" />
+                return (
+                  <iframe src={displayUrl} title={previewResource.title} className="resource-preview-frame" />
                 );
               } else if (isOffice) {
-                return (
-                  <iframe 
-                    src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
-                    title={previewResource.title} 
-                    className="resource-preview-frame" 
+                // Office files: use blob URL if available, otherwise Google Docs Viewer
+                return previewResource.blobUrl ? (
+                  <iframe src={displayUrl} title={previewResource.title} className="resource-preview-frame" />
+                ) : (
+                  <iframe
+                    src={`https://docs.google.com/viewer?url=${encodeURIComponent(originalUrl)}&embedded=true`}
+                    title={previewResource.title}
+                    className="resource-preview-frame"
                   />
                 );
               } else {
                 return (
                   <div className="resource-preview-unsupported">
                     <p>This file type cannot be previewed directly.</p>
-                    <a 
-                      href={url} 
-                      target="_blank" 
+                    <a
+                      href={displayUrl}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="resource-preview-download-btn"
                     >
-                      <FaDownload style={{ marginRight: '0.5rem' }} />
-                      Download File
+                      <FaExternalLinkAlt style={{ marginRight: '0.5rem' }} />
+                      Open Link
                     </a>
                   </div>
                 );
               }
             })()}
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {notification && (
+        <div className="resources-notification">
+          {notification}
         </div>
       )}
     </div>

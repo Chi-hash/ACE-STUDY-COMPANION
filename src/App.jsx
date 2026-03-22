@@ -17,28 +17,58 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        // User is signed in
+        // Email/password users must have a verified email before gaining access
+        const isEmailPasswordUser = user.providerData.some(
+          (p) => p.providerId === "password"
+        );
+        if (isEmailPasswordUser && !user.emailVerified) {
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+          setLoading(false);
+          return;
+        }
+
         const userData = {
           uid: user.uid,
           email: user.email,
           name: user.displayName || user.email?.split("@")[0] || "Student",
           photoURL: user.photoURL,
           phoneNumber: user.phoneNumber,
-          streak: 7, // Default streak
+          streak: 7,
         };
 
         setCurrentUser(userData);
         setIsAuthenticated(true);
 
-        // Store in localStorage for persistence
         localStorage.setItem("aceit_current_user", JSON.stringify(userData));
         localStorage.setItem("aceit_auth_token", user.accessToken || "");
       } else {
-        // User is signed out
+        // User is signed out — clear ALL user-specific cached data
         setCurrentUser(null);
         setIsAuthenticated(false);
-        localStorage.removeItem("aceit_current_user");
-        localStorage.removeItem("aceit_auth_token");
+        const keysToRemove = [
+          "aceit_current_user",
+          "aceit_auth_token",
+          "firebase_token",
+          "userData",
+          // Flashcards
+          "ace-it-flashcards",
+          "ace-it-review-data",
+          // Resources
+          "ace-it-resources",
+          "ace-it-resource-subjects",
+          "ace-it-library-subject-map",
+          "ace-summary-titles",
+          // Quiz
+          "quiz_history",
+          // Settings & profile
+          "aceit_settings",
+          "aceit_profile_picture",
+          // Chatbot
+          "ace-it-voice-enabled",
+          "ace-it-chat-sessions",
+        ];
+        keysToRemove.forEach((key) => localStorage.removeItem(key));
       }
       setLoading(false);
     });

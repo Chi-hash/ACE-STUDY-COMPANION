@@ -1084,15 +1084,7 @@
   overflow: hidden;
 }
 
-.quick-ask-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--primary), var(--chart-5));
-}
+
 
 .quick-ask-badge {
   background: rgba(var(--primary-rgb, 178, 111, 254), 0.15);

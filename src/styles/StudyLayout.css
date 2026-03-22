@@ -671,7 +671,7 @@
   border-radius: 0.5rem;
   border: 1px solid var(--sidebar-border);
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-  z-index: 50;
+  z-index: 200;
   margin-top: 10px;
 }
 
@@ -1664,4 +1664,98 @@
 
 .border-t-transparent {
   border-top-color: transparent;
+}
+
+/* ── Inactivity Warning Modal ──────────────────────────────────────────── */
+.inactivity-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.inactivity-modal {
+  background: var(--modal-bg, var(--card));
+  border: 1px solid var(--modal-border, var(--border));
+  border-radius: 1rem;
+  padding: 2rem 2rem 1.75rem;
+  width: 90%;
+  max-width: 360px;
+  text-align: center;
+  animation: slideUp 0.25s ease-out;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+.inactivity-icon {
+  font-size: 2.25rem;
+  color: var(--primary);
+  margin-bottom: 0.75rem;
+}
+
+.inactivity-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary, var(--foreground));
+  margin: 0 0 0.5rem;
+}
+
+.inactivity-body {
+  font-size: 0.9rem;
+  color: var(--text-secondary, var(--muted-foreground));
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.inactivity-countdown {
+  font-size: 2.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  letter-spacing: 0.05em;
+  margin-bottom: 1.5rem;
+}
+
+.inactivity-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.inactivity-btn-stay {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.inactivity-btn-stay:hover {
+  opacity: 0.85;
+}
+
+.inactivity-btn-logout {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary, var(--muted-foreground));
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.inactivity-btn-logout:hover {
+  border-color: #ef4444;
+  color: #ef4444;
 }

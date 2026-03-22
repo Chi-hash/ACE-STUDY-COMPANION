@@ -51,7 +51,16 @@ class StreakManager {
   constructor() {
     this.STREAK_KEY = "aceit_streak_data_";
     this.MIN_STUDY_DURATION = 0.25; // 15 minutes
-    this.STUDY_GOAL = 0.5; // 30 minutes daily goal
+    this.DEFAULT_STUDY_GOAL = 0.5; // 30 minutes fallback
+  }
+
+  get STUDY_GOAL() {
+    try {
+      const settings = JSON.parse(localStorage.getItem("aceit_settings") || "{}");
+      const mins = Number(settings.dailyStudyGoalMinutes);
+      if (Number.isFinite(mins) && mins >= 5) return mins / 60;
+    } catch { /* use default */ }
+    return this.DEFAULT_STUDY_GOAL;
   }
 
   getStorageKey(uid) {
@@ -752,25 +761,6 @@ export function Flashcards() {
     fetchFlashcardData();
   }, [backendStatus]);
 
-  useEffect(() => {
-    const fetchUserSubjects = async () => {
-      try {
-        if (backendStatus === "available") {
-          const response = await userAPI.getProfile();
-          if (response.ok && response.profile) {
-            const subjects = response.profile.subject;
-            if (subjects) {
-              setUserSubjects(Array.isArray(subjects) ? subjects : [subjects]);
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching user subjects:", error);
-      }
-    };
-
-    fetchUserSubjects();
-  }, [backendStatus]);
 
   useEffect(() => {
     if (flashcards.length > 0) {
@@ -896,7 +886,7 @@ export function Flashcards() {
 
   const handleStudySessionComplete = useCallback(() => {
     const cardsStudied = currentCardIndex + 1;
-    let durationHours = null;
+    let durationHours = 0;
     if (studySessionStartTime.current instanceof Date) {
       const elapsedMs = Date.now() - studySessionStartTime.current.getTime();
       durationHours = Math.max(elapsedMs / (1000 * 60 * 60), 0);
@@ -1363,10 +1353,6 @@ export function Flashcards() {
 
     const newProgress = ((currentCardIndex + 1) / studyCards.length) * 100;
     setStudyProgress(Math.min(newProgress, 100));
-
-    if (quality >= 3) {
-      triggerStreakUpdate("flashcard_correct", 1, 0);
-    }
 
     setTimeout(() => {
       if (currentCardIndex < studyCards.length - 1) {
@@ -2476,16 +2462,22 @@ export function Flashcards() {
                   </p>
                 </div>
               </div>
-              <div className="progress-bar mt-2">
-                <div
-                  className="progress-fill bg-orange-500"
-                  style={{ width: `${todaysProgress.progressPercent}%` }}
-                ></div>
-              </div>
               <p className="text-sm text-muted mt-1">
                 {Math.round(todaysProgress.hoursStudied * 60)}/
                 {Math.round(todaysProgress.goal * 60)} minutes today
               </p>
+              <div className="streak-progress-wrapper">
+                <div className="streak-progress-track">
+                  <div
+                    className="streak-progress-fill"
+                    style={{ width: `${Math.min(todaysProgress.progressPercent, 100)}%` }}
+                  />
+                </div>
+                <div className="streak-progress-labels">
+                  <span>0 min</span>
+                  <span>{Math.round(todaysProgress.goal * 60)} min</span>
+                </div>
+              </div>
             </div>
             <div className="streak-stats">
               <div className="stat-item">

@@ -170,7 +170,23 @@
 @media (min-width: 1024px) {
   .flashcards-main-grid {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.8fr);
-    align-items: flex-start;
+    align-items: stretch;
+  }
+
+  .flashcards-main-grid > .space-y-4 {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .flashcards-main-grid > .space-y-4 > .streak-display,
+  .flashcards-main-grid > .space-y-4 > .card-item {
+    flex: 1 1 0%;
+    min-height: 0;
+  }
+
+  .flashcards-main-grid .streak-display {
+    margin-bottom: 0;
   }
 }
 
@@ -1633,6 +1649,35 @@ body {
 
 .streak-display .text-sm.text-muted.mt-1 {
   color: #ffffff;
+}
+
+/* Streak minutes progress bar */
+.streak-progress-wrapper {
+  margin-top: 0.75rem;
+}
+
+.streak-progress-track {
+  width: 100%;
+  height: 0.625rem;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.streak-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #fb923c, #f59e0b);
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+
+.streak-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 0.25rem;
 }
 
 .streak-icon {

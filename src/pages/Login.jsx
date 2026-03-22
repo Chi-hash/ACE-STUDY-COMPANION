@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   signInWithEmailAndPassword,
+  sendEmailVerification,
+  signOut,
   signInWithPopup,
   GoogleAuthProvider,
   RecaptchaVerifier,
@@ -15,6 +17,23 @@ import orimage from "../assets/orimage.svg";
 import googlelogo from "../assets/googlelogo.svg";
 import { countries } from "../data/countries";
 
+const FIREBASE_ERRORS = {
+  "auth/user-not-found": "No account found with this email address.",
+  "auth/wrong-password": "Incorrect password. Please try again.",
+  "auth/invalid-credential": "Incorrect email or password.",
+  "auth/invalid-email": "Please enter a valid email address.",
+  "auth/too-many-requests": "Too many attempts. Please wait a moment and try again.",
+  "auth/user-disabled": "This account has been disabled. Contact support.",
+  "auth/network-request-failed": "Network error. Please check your connection.",
+  "auth/invalid-verification-code": "Invalid verification code. Please try again.",
+  "auth/code-expired": "Verification code expired. Please request a new one.",
+};
+
+const getFriendlyError = (err) => {
+  const code = err?.code || "";
+  return FIREBASE_ERRORS[code] || "Something went wrong. Please try again.";
+};
+
 // Phone Input Component extracted for reusability
 const PhoneInput = ({ name, placeholder, value, onChange, onCountryChange, defaultCountry = "+1" }) => {
   const [open, setOpen] = useState(false);
@@ -25,7 +44,7 @@ const PhoneInput = ({ name, placeholder, value, onChange, onCountryChange, defau
     iso: "US"
   });
   const [filter, setFilter] = useState("");
-  
+  const dropdownRef = useRef(null);
 
   const filteredCountries = filter.trim() === "" 
     ? countries 
@@ -43,8 +62,20 @@ const PhoneInput = ({ name, placeholder, value, onChange, onCountryChange, defau
     }
   };
 
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!open) return;
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setOpen(false);
+        setFilter("");
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
   return (
-    <div className="phone-input">
+    <div className="phone-input" ref={dropdownRef}>
       <div 
         className="country-selector"
         onClick={() => setOpen(!open)}
@@ -100,6 +131,8 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [unverifiedUser, setUnverifiedUser] = useState(null);
+  const [resendSent, setResendSent] = useState(false);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -158,26 +191,45 @@ const Login = () => {
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setError("");
+    setUnverifiedUser(null);
+    setResendSent(false);
     setLoading(true);
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const idToken = await userCredential.user.getIdToken();
-      
-      const userData = {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-        displayName: userCredential.user.displayName || email.split("@")[0],
-      };
+      const user = userCredential.user;
 
-      localStorage.setItem("userData", JSON.stringify(userData));
+      if (!user.emailVerified) {
+        // Sign back out — don't grant access to unverified accounts
+        await signOut(auth);
+        setUnverifiedUser(user);
+        setError("Please verify your email before logging in. Check your inbox for the verification link.");
+        return;
+      }
+
+      const idToken = await user.getIdToken();
+      localStorage.setItem("userData", JSON.stringify({
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || email.split("@")[0],
+      }));
       localStorage.setItem("firebase_token", idToken);
       navigate("/dashboard");
     } catch (err) {
       console.error("Login error:", err);
-      setError(err.message || "Login failed. Please try again.");
+      setError(getFriendlyError(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!unverifiedUser) return;
+    try {
+      await sendEmailVerification(unverifiedUser);
+      setResendSent(true);
+    } catch (err) {
+      console.error("Resend error:", err);
     }
   };
 
@@ -200,8 +252,12 @@ const Login = () => {
       localStorage.setItem("firebase_token", idToken);
       navigate("/dashboard");
     } catch (err) {
+      if (err?.code === "auth/popup-closed-by-user" || err?.code === "auth/cancelled-popup-request") {
+        setLoading(false);
+        return;
+      }
       console.error("Google login error:", err);
-      setError(err.message || "Google login failed.");
+      setError(getFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -238,7 +294,7 @@ const Login = () => {
       setPhoneStep("INPUT_OTP");
     } catch (err) {
       console.error("Phone auth error:", err);
-      setError(err.message || "Failed to send verification code.");
+      setError(getFriendlyError(err) || "Failed to send verification code.");
       if (window.recaptchaVerifier) {
         window.recaptchaVerifier.clear();
         window.recaptchaVerifier = null;
@@ -272,7 +328,7 @@ const Login = () => {
       navigate("/dashboard");
     } catch (err) {
       console.error("OTP error:", err);
-      setError("Invalid verification code. Please try again.");
+      setError(getFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -324,7 +380,28 @@ const Login = () => {
             </div>
 
             <div className="bottom">
-              {error && <div className="error-message">{error}</div>}
+              {error && (
+                <div className="error-message">
+                  {error}
+                  {unverifiedUser && (
+                    <div style={{ marginTop: "0.6rem" }}>
+                      {resendSent ? (
+                        <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 500 }}>
+                          ✓ Verification email sent — check your inbox.
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleResendVerification}
+                          style={{ background: "none", border: "none", color: "#7c5cff", fontWeight: 600, fontSize: "0.85rem", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                        >
+                          Resend verification email
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               
               <div className="form-slider">
                 <div 

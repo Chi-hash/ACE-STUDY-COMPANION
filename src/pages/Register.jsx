@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
+  signOut,
   signInWithPopup,
   GoogleAuthProvider,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
 } from "firebase/auth";
 import { auth } from "../assets/js/firebase.js";
 import "../styles/auth.css";
@@ -122,11 +122,8 @@ const Register = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [registered, setRegistered] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [phoneStep, setPhoneStep] = useState("INPUT_PHONE");
-  const [phoneOtp, setPhoneOtp] = useState("");
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [confirmationResult, setConfirmationResult] = useState(null);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -196,11 +193,6 @@ const Register = () => {
     e.preventDefault();
     setError("");
 
-    if (!phoneVerified) {
-      setError("Please verify your phone number before creating an account.");
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -241,17 +233,13 @@ const Register = () => {
       const data = await response.json();
 
       if (response.ok) {
-        // Store user data
-        const userData = {
-          uid: userCredential.user.uid,
-          email: userCredential.user.email,
-          ...data.user
-        };
-
-        localStorage.setItem("userData", JSON.stringify(userData));
-        localStorage.setItem("firebase_token", idToken);
-        
-        navigate("/dashboard");
+        // Send email verification before granting access
+        await sendEmailVerification(userCredential.user);
+        // Sign out immediately — user must verify email before logging in
+        await signOut(auth);
+        localStorage.removeItem("userData");
+        localStorage.removeItem("firebase_token");
+        setRegistered(true);
       } else {
         throw new Error(data.message || "Registration failed");
       }
@@ -289,59 +277,6 @@ const Register = () => {
     }
   };
 
-  const handleSendPhoneCode = async () => {
-    setError("");
-
-    const fullPhoneNumber =
-      formData.phone_country_code + formData.phone_number.replace(/\D/g, "");
-
-    if (!formData.phone_number.trim()) {
-      setError("Enter a valid phone number.");
-      return;
-    }
-
-    try {
-      if (!window.recaptchaVerifier) {
-        window.recaptchaVerifier = new RecaptchaVerifier(
-          auth,
-          "recaptcha-register-container",
-          {
-            size: "invisible",
-          },
-        );
-      }
-
-      const confirmation = await signInWithPhoneNumber(
-        auth,
-        fullPhoneNumber,
-        window.recaptchaVerifier,
-      );
-      setConfirmationResult(confirmation);
-      setPhoneStep("INPUT_OTP");
-    } catch (err) {
-      console.error("Phone verification error:", err);
-      setError(err.message || "Failed to send verification code.");
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-      }
-    }
-  };
-
-  const handleVerifyPhoneCode = async () => {
-    setError("");
-    if (!confirmationResult) return;
-
-    try {
-      await confirmationResult.confirm(phoneOtp);
-      setPhoneVerified(true);
-      setPhoneStep("INPUT_PHONE");
-      setPhoneOtp("");
-    } catch (err) {
-      console.error("OTP verification error:", err);
-      setError("Invalid verification code. Please try again.");
-    }
-  };
 
   return (
     <>
@@ -364,6 +299,22 @@ const Register = () => {
 
         <div className="register-container">
           <div className="formdiv">
+            {registered ? (
+              <div className="verify-email-screen">
+                <div className="verify-email-icon">📧</div>
+                <h2>Check your email</h2>
+                <p>
+                  We sent a verification link to <strong>{formData.email}</strong>.
+                  Click the link in that email to activate your account, then log in.
+                </p>
+                <Link to="/">
+                  <button className="submit-button" style={{ marginTop: "1.5rem" }}>
+                    Go to Login
+                  </button>
+                </Link>
+              </div>
+            ) : (
+            <>
             <div className="top">
               <h2>
                 Create your <span className="purple">Account</span>
@@ -375,6 +326,7 @@ const Register = () => {
               <form onSubmit={handleSubmit} className="register-form">
                 {error && <div className="error-message">{error}</div>}
                 
+                  {/* ── Row 1: Name + Date of Birth ── */}
                   <div className="form-grid">
                     <div className="form-field">
                       <div className="input-group">
@@ -404,8 +356,11 @@ const Register = () => {
                         />
                       </div>
                     </div>
+                  </div>
 
-                    <div className="form-field">
+                  {/* ── Row 2: Gender (full width) ── */}
+                  <div className="form-grid">
+                    <div className="form-field form-field-full">
                       <div className="input-group">
                         <FaVenusMars className="input-icon" />
                         <select
@@ -423,7 +378,10 @@ const Register = () => {
                         </select>
                       </div>
                     </div>
+                  </div>
 
+                  {/* ── Row 3: Phone + Verification ── */}
+                  <div className="form-grid">
                     <div className="form-field form-field-full">
                       <PhoneInput
                         name="phone_number"
@@ -431,61 +389,20 @@ const Register = () => {
                         value={formData.phone_number}
                         onChange={(e) => setFormData(prev => ({ ...prev, phone_number: e.target.value }))}
                         onCountryChange={(code, iso) => {
-                          setFormData(prev => ({ 
-                            ...prev, 
+                          setFormData(prev => ({
+                            ...prev,
                             phone_country_code: code,
-                            country: iso 
+                            country: iso
                           }));
                         }}
                         defaultCountry="+234"
                       />
-                      <div id="recaptcha-register-container"></div>
-                      {!phoneVerified ? (
-                        <div className="mt-3 space-y-3">
-                          {phoneStep === "INPUT_PHONE" ? (
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              onClick={handleSendPhoneCode}
-                              disabled={loading}
-                            >
-                              Send Verification Code
-                            </button>
-                          ) : (
-                            <div className="otp-container">
-                              <p>
-                                Enter the 6-digit code sent to your phone number
-                              </p>
-                              <input
-                                className="otp-input"
-                                type="text"
-                                placeholder="123456"
-                                maxLength="6"
-                                value={phoneOtp}
-                                onChange={(e) =>
-                                  setPhoneOtp(e.target.value.replace(/\D/g, ""))
-                                }
-                                disabled={loading}
-                              />
-                              <button
-                                type="button"
-                                className="submit-button"
-                                onClick={handleVerifyPhoneCode}
-                                disabled={loading || phoneOtp.length !== 6}
-                              >
-                                Verify Phone
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-green-600 mt-2">
-                          Phone number verified
-                        </p>
-                      )}
                     </div>
+                  </div>
 
-                    <div className="form-field">
+                  {/* ── Row 4: Email (full width) ── */}
+                  <div className="form-grid">
+                    <div className="form-field form-field-full">
                       <div className="input-group">
                         <FaEnvelope className="input-icon" />
                         <input
@@ -499,14 +416,17 @@ const Register = () => {
                         />
                       </div>
                     </div>
+                  </div>
 
-                    <div className="form-field">
+                  {/* ── Row 5: Password (full width) ── */}
+                  <div className="form-grid">
+                    <div className="form-field form-field-full">
                       <div className="password-input-wrapper">
                         <FaLock className="input-icon" />
                         <input
                           type={showPassword ? "text" : "password"}
                           name="password"
-                          placeholder="Password * (min. 6 chars)"
+                          placeholder="Password * (min. 6 characters)"
                           value={formData.password}
                           onChange={handleChange}
                           required
@@ -523,7 +443,10 @@ const Register = () => {
                         </button>
                       </div>
                     </div>
+                  </div>
 
+                  {/* ── Row 6: Subject + Course of Study ── */}
+                  <div className="form-grid">
                     <div className="form-field">
                       <div className="input-group">
                         <FaBook className="input-icon" />
@@ -551,7 +474,10 @@ const Register = () => {
                         />
                       </div>
                     </div>
+                  </div>
 
+                  {/* ── Row 7: School Name + School Type ── */}
+                  <div className="form-grid">
                     <div className="form-field">
                       <div className="input-group">
                         <FaUniversity className="input-icon" />
@@ -609,6 +535,8 @@ const Register = () => {
                 </button>
               </form>
             </div>
+            </>
+            )}
           </div>
         </div>
       </section>

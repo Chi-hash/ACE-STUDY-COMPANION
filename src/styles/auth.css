@@ -582,7 +582,12 @@ input::placeholder {
   width: 100%;
   display: flex;
   justify-content: center;
-  align-items: stretch;
+  align-items: flex-start;
+}
+
+.register-container .formdiv {
+  max-width: 600px;
+  width: 100%;
 }
 
 .register-form {
@@ -591,14 +596,16 @@ input::placeholder {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   width: 100%;
-  max-width: 860px;
   border: 1px solid white;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
+  gap: 14px;
 }
 
 .form-field {
@@ -607,6 +614,17 @@ input::placeholder {
 
 .form-field-full {
   grid-column: 1 / -1;
+}
+
+.phone-verify-block {
+  margin-top: 10px;
+}
+
+.phone-verified-label {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #16a34a;
+  font-weight: 500;
 }
 
 .styled-select {
@@ -655,6 +673,34 @@ input::placeholder {
   padding: 24px;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+/* Email verification success screen */
+.verify-email-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  gap: 1rem;
+}
+
+.verify-email-icon {
+  font-size: 3.5rem;
+  line-height: 1;
+}
+
+.verify-email-screen h2 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.verify-email-screen p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 380px;
 }
 
 /* =========================

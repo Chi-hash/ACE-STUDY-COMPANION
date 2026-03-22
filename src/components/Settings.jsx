@@ -48,6 +48,7 @@ const defaultSettings = (currentUser) => ({
   // Study Preferences
   defaultSubject: "",
   weeklyGoalHours: 6,
+  dailyStudyGoalMinutes: 30,
   reminderTime: "08:00",
   studyMode: "balanced",
   // Study Habits — feed ML prediction model
@@ -274,6 +275,7 @@ export function Settings({ currentUser }) {
     setFormState((prev) => ({
       ...prev,
       weeklyGoalHours: 6,
+      dailyStudyGoalMinutes: 30,
       reminderTime: "08:00",
       studyMode: "balanced",
     }));
@@ -528,6 +530,18 @@ export function Settings({ currentUser }) {
                 max="40"
                 value={formState.weeklyGoalHours}
                 onChange={handleChange("weeklyGoalHours")}
+              />
+            </label>
+
+            <label className="settings-field">
+              <span>Daily study goal (minutes)</span>
+              <input
+                type="number"
+                min="5"
+                max="480"
+                step="5"
+                value={formState.dailyStudyGoalMinutes}
+                onChange={handleChange("dailyStudyGoalMinutes")}
               />
             </label>
 

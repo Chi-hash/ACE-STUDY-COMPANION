@@ -696,15 +696,40 @@ export const quizAPI = {
   }
 };
 
+const SUMMARY_MIME_MAP = {
+  '.pdf':  'application/pdf',
+  '.doc':  'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.ppt':  'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.xls':  'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.txt':  'text/plain',
+};
+
 export const summaryAPI = {
   generateSummary: async (file) => {
     try {
+      // Ensure the file has the correct MIME type (Windows sometimes strips it)
+      let resolvedFile = file;
+      if (!file.type) {
+        const ext = ('.' + file.name.split('.').pop()).toLowerCase();
+        const mime = SUMMARY_MIME_MAP[ext];
+        if (mime) {
+          resolvedFile = new File([file], file.name, { type: mime });
+        }
+      }
+
+      console.log(`[SummaryAPI] Uploading: ${resolvedFile.name} (${resolvedFile.type}, ${(resolvedFile.size / 1024).toFixed(1)} KB)`);
+
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', resolvedFile);
 
       const response = await api.post('/media_summary', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        timeout: 180000,
       });
+
+      console.log('[SummaryAPI] Response:', response.data);
       return response.data;
     } catch (error) {
       console.error('Error generating summary:', error);

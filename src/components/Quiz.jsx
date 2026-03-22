@@ -137,12 +137,9 @@ export function Quiz() {
     );
   }, [folders, selectedSubject, selectedTopic]);
 
-  useEffect(() => {
-    if (availableCards === 0) return;
-    if (questionCount > availableCards) {
-      setQuestionCount(Math.max(5, Math.min(availableCards, 50)));
-    }
-  }, [availableCards, questionCount]);
+  const effectiveQuestionCount = availableCards > 0
+    ? Math.min(questionCount, availableCards)
+    : questionCount;
 
   const history = useMemo(() => {
     try {
@@ -706,13 +703,13 @@ export function Quiz() {
                     <div className="quiz-count-header">
                       <p className="quiz-label">Question Count</p>
                       <span className="quiz-count-value">
-                        {Math.min(questionCount, availableCards || questionCount)} Questions
+                        {effectiveQuestionCount} Questions
                       </span>
                     </div>
                     <input
                       type="range"
                       min="5"
-                      max={Math.max(5, Math.min(availableCards || 50, 50))}
+                      max="50"
                       step="5"
                       value={questionCount}
                       onChange={(e) => setQuestionCount(Number(e.target.value))}
@@ -724,33 +721,7 @@ export function Quiz() {
                     </div>
                   </div>
 
-                  <div>
-                    <p className="quiz-label">Mode</p>
-                    <div className="quiz-mode-grid">
-                      <button
-                        className={`quiz-mode-card ${
-                          !examMode ? "active" : ""
-                        }`}
-                        onClick={() => setExamMode(false)}
-                      >
-                        <div>
-                          <p className="quiz-mode-title">Practice</p>
-                          <p className="quiz-mode-desc">Immediate feedback</p>
-                        </div>
-                      </button>
-                      <button
-                        className={`quiz-mode-card ${
-                          examMode ? "active" : ""
-                        }`}
-                        onClick={() => setExamMode(true)}
-                      >
-                        <div>
-                          <p className="quiz-mode-title">Exam</p>
-                          <p className="quiz-mode-desc">Results at end</p>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
+
                 </>
               ) : (
                     <div className="quiz-document-panel">
@@ -839,17 +810,34 @@ export function Quiz() {
               )}
 
               <div className="quiz-setup-footer">
-                <div className="quiz-toggle-row">
-                  <button
-                    className={`quiz-toggle ${
-                      timerEnabled ? "active" : ""
-                    }`}
-                    onClick={() => setTimerEnabled((prev) => !prev)}
-                    aria-pressed={timerEnabled}
-                  >
-                    <span className="quiz-toggle-thumb" />
-                  </button>
-                  <span>Timer</span>
+                <div className="quiz-footer-left">
+                  <div className="quiz-toggle-row">
+                    <button
+                      className={`quiz-toggle ${
+                        timerEnabled ? "active" : ""
+                      }`}
+                      onClick={() => setTimerEnabled((prev) => !prev)}
+                      aria-pressed={timerEnabled}
+                    >
+                      <span className="quiz-toggle-thumb" />
+                    </button>
+                    <span>Timer</span>
+                  </div>
+                  
+                  <div className="quiz-mode-segmented">
+                    <button
+                      className={`quiz-segmented-btn ${!examMode ? "active" : ""}`}
+                      onClick={() => setExamMode(false)}
+                    >
+                      Practice
+                    </button>
+                    <button
+                      className={`quiz-segmented-btn ${examMode ? "active" : ""}`}
+                      onClick={() => setExamMode(true)}
+                    >
+                      Exam
+                    </button>
+                  </div>
                 </div>
                 <button
                   onClick={startQuiz}
@@ -881,7 +869,13 @@ export function Quiz() {
             <div className="quiz-card quiz-history-card">
               <div className="quiz-history-header">
                 <h3>Recent Activity</h3>
-                <span className="quiz-history-link">View All</span>
+                <span
+                  className="quiz-history-link"
+                  onClick={() => setQuizMode("history")}
+                  style={{ cursor: "pointer" }}
+                >
+                  View All
+                </span>
               </div>
               <div className="quiz-history-list">
                 {history.slice(0, 4).map((item) => (
@@ -907,7 +901,10 @@ export function Quiz() {
                   </p>
                 )}
               </div>
-              <button className="quiz-button quiz-button-secondary quiz-button-full">
+              <button
+                className="quiz-button quiz-button-secondary quiz-button-full"
+                onClick={() => setQuizMode("history")}
+              >
                 View Full History
               </button>
             </div>
@@ -1245,6 +1242,57 @@ export function Quiz() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (quizMode === "history") {
+    return (
+      <div className="quiz-active-page">
+        <div className="quiz-card quiz-full-history-card">
+          <div className="quiz-history-header-full" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h2>Full Quiz History</h2>
+            <button
+              className="quiz-button quiz-button-secondary"
+              onClick={() => setQuizMode("setup")}
+            >
+              Back to Setup
+            </button>
+          </div>
+          <div className="quiz-history-list-full" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {history.length > 0 ? (
+              history.map((item) => (
+                <div key={item.id} className="quiz-history-item">
+                  <div>
+                    <p className="quiz-history-title">
+                      {item.source === "document"
+                        ? `Document: ${item.sourceTitle || "Uploaded file"}`
+                        : item.subject || "All Subjects"}
+                      {item.topic && item.topic !== "All Topics" && (
+                        <span className="text-muted text-sm font-normal"> — {item.topic}</span>
+                      )}
+                    </p>
+                    <p className="quiz-history-date">
+                      {new Date(item.date).toLocaleString()}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <span className="quiz-history-mode" style={{ fontSize: '0.75rem', color: 'var(--quiz-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                      {item.mode} • {item.type}
+                    </span>
+                    <span className="quiz-history-score">
+                      {item.percentage || 0}%
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="quiz-history-empty text-center py-8">
+                No quiz history available yet. Complete a quiz to see it here!
+              </p>
+            )}
           </div>
         </div>
       </div>
