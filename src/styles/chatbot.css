@@ -257,7 +257,7 @@
 }
 
 .chatbot-header-title h2 {
-  font-size: 1rem;
+  font-size: 1.25rem;
   font-weight: 600;
 }
 
@@ -388,7 +388,7 @@
   width: fit-content;
   max-width: 100%;
   line-height: 1.6;
-  font-size: 0.95rem;
+  font-size: 1rem;
   background: var(--muted);
   word-break: break-word;
   transition: background-color 0.3s ease, color 0.3s ease;
@@ -529,6 +529,7 @@
   padding: 0.5rem;
   background: transparent;
   color: var(--foreground);
+  font-size: 1rem;
   resize: none;
   min-height: 24px;
   max-height: 120px;
@@ -1069,3 +1070,55 @@
 .chatbot-message.user .chatbot-speech-btn {
   color: var(--primary-foreground);
 }
+
+/* ── Math Rendering (KaTeX) ──────────────────────────────── */
+.math-block {
+  overflow-x: auto;
+  padding: 0.6rem 0;
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+.math-inline {
+  font-size: 1em;
+}
+
+.math-raw {
+  font-family: "Fira Code", monospace;
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Mobile Typography Overrides ──────────────────────────────── */
+@media (max-width: 768px) {
+  .chatbot-message-bubble {
+    font-size: 0.95rem;
+    padding: 0.65rem 0.85rem;
+  }
+  
+  .chatbot-header-title h2 {
+    font-size: 1.15rem;
+  }
+  
+  .chatbot-empty-state h3 {
+    font-size: 1.25rem;
+  }
+  
+  .chatbot-sidebar-header h3 {
+    font-size: 1.1rem;
+  }
+  
+  .chatbot-input textarea {
+    font-size: 1rem; /* Must stay 16px/1rem on iOS to prevent zoom on focus */
+  }
+  
+  .chatbot-session-item span {
+    font-size: 0.9rem;
+  }
+}
+

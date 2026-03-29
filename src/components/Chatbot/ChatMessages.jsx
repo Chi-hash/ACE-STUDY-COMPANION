@@ -4,6 +4,81 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { FaVolumeUp, FaStop } from "react-icons/fa";
 
+// Splits text into alternating non-math / math segments.
+// Handles: $$...$$, \begin{...}...\end{...}, and inline $...$
+function parseMathSegments(text) {
+  const segments = [];
+  // Match display math: $$...$$  OR  \begin{...}...\end{...}
+  const displayRe = /\$\$[\s\S]+?\$\$|\\begin\{[^}]+\}[\s\S]+?\\end\{[^}]+\}/g;
+  let last = 0;
+  let m;
+  while ((m = displayRe.exec(text)) !== null) {
+    if (m.index > last) segments.push({ type: "text", content: text.slice(last, m.index) });
+    segments.push({ type: "block-math", content: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) segments.push({ type: "text", content: text.slice(last) });
+
+  // Now split any remaining text segments on inline $...$
+  const result = [];
+  for (const seg of segments) {
+    if (seg.type !== "text") { result.push(seg); continue; }
+    const inlineRe = /\$([^$\n]+?)\$/g;
+    let p = 0;
+    let im;
+    while ((im = inlineRe.exec(seg.content)) !== null) {
+      if (im.index > p) result.push({ type: "text", content: seg.content.slice(p, im.index) });
+      result.push({ type: "inline-math", content: im[1] });
+      p = im.index + im[0].length;
+    }
+    if (p < seg.content.length) result.push({ type: "text", content: seg.content.slice(p) });
+  }
+  return result;
+}
+
+function renderKatex(raw, displayMode) {
+  try {
+    // Strip $$ wrappers and \begin/\end for display math
+    let expr = raw;
+    if (displayMode) {
+      expr = expr.replace(/^\$\$|\$\$$/g, "").trim();
+    }
+    if (typeof window !== "undefined" && window.katex) {
+      return window.katex.renderToString(expr, { displayMode, throwOnError: false });
+    }
+    // KaTeX not loaded yet — fall back to raw text
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function MathRenderer({ text }) {
+  const segments = useMemo(() => parseMathSegments(text), [text]);
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (seg.type === "block-math") {
+          const html = renderKatex(seg.content, true);
+          if (html) return <div key={i} className="math-block" dangerouslySetInnerHTML={{ __html: html }} />;
+          return <pre key={i} className="math-raw">{seg.content}</pre>;
+        }
+        if (seg.type === "inline-math") {
+          const html = renderKatex(seg.content, false);
+          if (html) return <span key={i} className="math-inline" dangerouslySetInnerHTML={{ __html: html }} />;
+          return <code key={i}>{seg.content}</code>;
+        }
+        // Plain text — render with ReactMarkdown
+        return (
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm, remarkBreaks]}>
+            {seg.content}
+          </ReactMarkdown>
+        );
+      })}
+    </>
+  );
+}
+
 const formatFileSize = (bytes = 0) => {
   if (!bytes) return "";
   const kb = bytes / 1024;
@@ -109,11 +184,16 @@ const renderMessageContent = (message) => {
   }
 
   const formatted = formatMessageText(message);
+  const hasMath = /\$|\\begin\{/.test(formatted);
   return (
     <div className="chatbot-message-bubble">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-        {formatted}
-      </ReactMarkdown>
+      {hasMath ? (
+        <MathRenderer text={formatted} />
+      ) : (
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+          {formatted}
+        </ReactMarkdown>
+      )}
     </div>
   );
 };
