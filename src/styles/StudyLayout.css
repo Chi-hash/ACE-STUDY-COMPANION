@@ -1,6 +1,8 @@
 /* StudyLayout.css */
 /* CSS Variables - Study Layout Specific */
 :root {
+  /* Narrow rail when sidebar collapsed (desktop): menu only (no logo) */
+  --sidebar-collapsed-width: 5rem;
   --study-layout-bg: #f9fafb;
   --sidebar-bg: #ffffff;
   --sidebar-border: #e5e7eb;
@@ -147,7 +149,7 @@
 }
 
 .sidebar-collapsed {
-  width: 5rem;
+  width: var(--sidebar-collapsed-width);
   transform: translateX(-100%);
 }
 
@@ -163,7 +165,7 @@
   }
 
   .sidebar-collapsed {
-    width: 5rem;
+    width: var(--sidebar-collapsed-width);
   }
 
   .sidebar-expanded {
@@ -187,7 +189,7 @@
   }
 
   .sidebar-collapsed {
-    width: 5rem;
+    width: var(--sidebar-collapsed-width);
   }
 
   .mobile-only {
@@ -206,8 +208,8 @@
   }
 
   .sidebar-collapsed ~ .main-content .main-header {
-    left: 5rem;
-    width: calc(100% - 5rem);
+    left: var(--sidebar-collapsed-width);
+    width: calc(100% - var(--sidebar-collapsed-width));
   }
 }
 
@@ -219,6 +221,9 @@
   align-items: center;
   justify-content: center;
   background-color: var(--sidebar-header-bg);
+  padding-left: 1rem;
+  padding-right: 0.75rem;
+  box-sizing: border-box;
 }
 
 .sidebar-header-content {
@@ -226,6 +231,33 @@
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Expanded: logo + title on the left (with header padding), close on the right */
+.sidebar-expanded .sidebar-header-content {
+  justify-content: flex-start;
+}
+
+.sidebar-expanded .sidebar-header-content .sidebar-toggle-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Collapsed rail: only expand control (logo hidden) */
+.sidebar-collapsed .sidebar-header-content {
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  box-sizing: border-box;
+}
+
+.sidebar-collapsed .sidebar-toggle-btn {
+  flex-shrink: 0;
 }
 
 .sidebar-brand-logo {
@@ -236,8 +268,7 @@
 }
 
 .sidebar-collapsed .sidebar-brand-logo {
-  width: 1.85rem;
-  height: 1.85rem;
+  display: none;
 }
 
 .sidebar-title {
@@ -862,8 +893,8 @@
 }
 
 .sidebar-collapsed ~ .main-content .main-header {
-  left: 80px;
-  width: calc(100% - 80px);
+  left: var(--sidebar-collapsed-width);
+  width: calc(100% - var(--sidebar-collapsed-width));
 }
 
 @media screen and (max-width: 768px) {
