@@ -569,6 +569,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Let nested .content-area scroll inside the viewport instead of inflating min-height */
+  min-height: 0;
 }
 
 @media screen and (max-width: 768px) {
@@ -859,6 +861,9 @@
   padding: calc(1.5rem + 4rem) 1.5rem 1.5rem 1.5rem;
   background-color: var(--background);
   transition: background-color 0.3s ease;
+  position: relative;
+  /* Avoid scroll chaining / rubber-band blank past the app shell (esp. mobile) */
+  overscroll-behavior-y: contain;
 }
 
 .content-area.chatbot-mode {
