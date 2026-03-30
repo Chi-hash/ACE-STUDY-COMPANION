@@ -7,12 +7,13 @@ import { userAPI } from "../services/apiClient.js";
 import { requestReminderNotificationPermission } from "../services/reminderEmailService.js";
 import { showAppToast } from "../utils/toastBus.js";
 import { ACEIT_SETTINGS_KEY } from "../utils/studySettings.js";
+import {
+  buildAceItStudyBackup,
+  applyAceItStudyBackup,
+} from "../utils/aceStudyBackup.js";
 import "../styles/settings.css";
 
 const PROFILE_PIC_KEY = "aceit_profile_picture";
-const FLASHCARDS_STORAGE_KEY = "ace-it-flashcards";
-const REVIEW_DATA_STORAGE_KEY = "ace-it-review-data";
-const STUDY_BACKUP_VERSION = 1;
 
 /** Resize & compress an image File to a 200×200 JPEG data-URL. */
 const compressImage = (file) =>
@@ -103,28 +104,7 @@ export function Settings({ currentUser }) {
 
   const handleExportStudyBackup = useCallback(() => {
     try {
-      let cards = [];
-      let review = {};
-      try {
-        const rawC = localStorage.getItem(FLASHCARDS_STORAGE_KEY);
-        if (rawC) cards = JSON.parse(rawC);
-        if (!Array.isArray(cards)) cards = [];
-      } catch {
-        cards = [];
-      }
-      try {
-        const rawR = localStorage.getItem(REVIEW_DATA_STORAGE_KEY);
-        if (rawR) review = JSON.parse(rawR);
-        if (!review || typeof review !== "object") review = {};
-      } catch {
-        review = {};
-      }
-      const payload = {
-        version: STUDY_BACKUP_VERSION,
-        exportedAt: new Date().toISOString(),
-        aceItFlashcards: cards,
-        aceItReviewData: review,
-      };
+      const payload = buildAceItStudyBackup();
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
         type: "application/json",
       });
@@ -134,7 +114,10 @@ export function Settings({ currentUser }) {
       a.download = `aceit-study-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showAppToast("success", "Backup downloaded — use Import on your live site.");
+      showAppToast(
+        "success",
+        "Full backup downloaded — import on your other site URL while logged into the same account.",
+      );
     } catch {
       showAppToast("error", "Could not create backup.");
     }
@@ -146,39 +129,39 @@ export function Settings({ currentUser }) {
     if (!file) return;
     try {
       const text = await file.text();
-      const data = JSON.parse(text);
-      let cards;
-      let review = {};
-      if (
-        data &&
-        typeof data === "object" &&
-        data.version === STUDY_BACKUP_VERSION &&
-        data.aceItFlashcards != null
-      ) {
-        cards = data.aceItFlashcards;
-        review = data.aceItReviewData && typeof data.aceItReviewData === "object"
-          ? data.aceItReviewData
-          : {};
-      } else if (Array.isArray(data)) {
-        cards = data;
-      } else {
-        showAppToast("error", "Unrecognized backup file.");
-        return;
-      }
-      if (!Array.isArray(cards)) {
-        showAppToast("error", "Backup has no flashcard list.");
-        return;
-      }
+      const preview = JSON.parse(text);
+      const cardCount =
+        Array.isArray(preview)
+          ? preview.length
+          : Array.isArray(preview?.aceItFlashcards)
+            ? preview.aceItFlashcards.length
+            : 0;
       const ok = window.confirm(
-        `Replace flashcards on this device with ${cards.length} cards from the file? This overwrites current flashcards and review progress here.`,
+        `Restore a full AceIt backup into this browser?\n\n` +
+          `• ${cardCount} flashcards (and matching SRS progress from the file)\n` +
+          `• Streaks, study dates, local settings, library resources, quiz history, calendar plans, chat — anything saved in this backup\n\n` +
+          `This overwrites matching data stored locally for this site. Your login is not changed.\n\n` +
+          `The page will reload afterward so every screen picks up the restore.\n\n` +
+          `Note: This does not replace data on the server API — only what this app keeps in browser storage.`,
       );
       if (!ok) return;
-      localStorage.setItem(FLASHCARDS_STORAGE_KEY, JSON.stringify(cards));
-      localStorage.setItem(REVIEW_DATA_STORAGE_KEY, JSON.stringify(review));
+      const { cardCount: importedCards, extraKeysApplied } =
+        applyAceItStudyBackup(text, {});
       window.dispatchEvent(new CustomEvent("aceit-study-data-imported"));
-      showAppToast("success", `Imported ${cards.length} flashcards.`);
-    } catch {
-      showAppToast("error", "Could not read that file.");
+      window.dispatchEvent(new CustomEvent("aceit-backup-restored"));
+      showAppToast(
+        "success",
+        `Restored ${importedCards} cards and ${extraKeysApplied} other saved entries. Reloading…`,
+      );
+      setTimeout(() => {
+        window.location.reload();
+      }, 600);
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not read that file.";
+      showAppToast("error", msg);
     }
   }, []);
 
@@ -769,17 +752,19 @@ export function Settings({ currentUser }) {
         <section className="settings-card">
           <h2 className="settings-section-title">Flashcards &amp; study data</h2>
           <p className="settings-study-data-note">
-            Flashcards and spaced-repetition progress are stored in{" "}
-            <strong>this browser</strong> for <strong>this website address</strong>.
+            Flashcards, spaced repetition, streaks, study dates, local profile settings, library
+            files metadata, quiz history, calendar plans, and chat sessions live in{" "}
+            <strong>this browser</strong> for <strong>this exact site URL</strong>.
             <br />
-            <strong>localhost</strong> (when you develop) and <strong>your deployed URL</strong>{" "}
-            (e.g. <code className="settings-code-inline">.vercel.app</code>) do{" "}
-            <strong>not</strong> share storage — that is normal browser behavior, not a bug.
-            Cards that only existed on your computer stay there until you move them.
+            <strong>localhost</strong> and your <strong>deployed domain</strong> are separate —
+            use <strong>Download backup</strong> on one and <strong>Import backup</strong> on the
+            other (same AceIt login). Import applies everything in the file and then reloads the
+            page. Server-side profile/API data is separate unless your backend syncs it.
           </p>
           <p className="settings-study-data-note settings-study-data-note-secondary">
-            Download a backup while logged in on <strong>localhost</strong>, then open{" "}
-            <strong>Settings</strong> on your live site and import the same file (same account).
+            Backups are version 2 JSON and include all <code className="settings-code-inline">ace-it-*</code>{" "}
+            and <code className="settings-code-inline">aceit_*</code> keys except your password
+            tokens.
           </p>
           <div className="settings-study-data-actions">
             <input

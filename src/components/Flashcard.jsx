@@ -52,6 +52,24 @@ import {
   FaEyeSlash,
 } from "react-icons/fa";
 
+/** After a backup import, skip merging server flashcard sets for 24h (see aceStudyBackup.js). */
+function isBackendFlashcardMergeSkipped() {
+  try {
+    const raw = localStorage.getItem("aceit_skip_backend_flashcard_merge_until");
+    if (!raw) return false;
+    const until = Number(raw);
+    if (!Number.isFinite(until)) {
+      localStorage.removeItem("aceit_skip_backend_flashcard_merge_until");
+      return false;
+    }
+    if (Date.now() < until) return true;
+    localStorage.removeItem("aceit_skip_backend_flashcard_merge_until");
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // ==================== COMPLETE STREAK MANAGER ====================
 class StreakManager {
   constructor() {
@@ -384,6 +402,7 @@ export function Flashcards() {
   const fileInputRef = useRef(null);
   const studySessionStartTime = useRef(null);
   const isMounted = useRef(true);
+  const allowLocalPersistRef = useRef(false);
 
   const showFlashcardSuccess = useCallback((msg) => {
     setFlashcardSuccessMsg(msg);
@@ -745,7 +764,7 @@ export function Flashcards() {
             // Try to fetch flashcards from backend
             try {
               const flashcardResponse = await flashcardAPI.getFlashcards();
-              if (flashcardResponse.flashcards) {
+              if (flashcardResponse.flashcards && !isBackendFlashcardMergeSkipped()) {
                 setFlashcardSets(flashcardResponse.flashcards);
 
                 const backendCards = flashcardResponse.flashcards.flatMap(
@@ -789,6 +808,7 @@ export function Flashcards() {
         }
       } finally {
         if (isMounted.current) {
+          allowLocalPersistRef.current = true;
           setLoading(false);
         }
       }
@@ -799,6 +819,7 @@ export function Flashcards() {
 
   useEffect(() => {
     const onStudyDataImported = () => {
+      allowLocalPersistRef.current = true;
       try {
         const savedFlashcards = localStorage.getItem("ace-it-flashcards");
         const savedReviewData = localStorage.getItem("ace-it-review-data");
@@ -822,14 +843,20 @@ export function Flashcards() {
   }, []);
 
   useEffect(() => {
-    if (flashcards.length > 0) {
+    if (!allowLocalPersistRef.current) return;
+    try {
       localStorage.setItem("ace-it-flashcards", JSON.stringify(flashcards));
+    } catch (e) {
+      console.error("Failed to persist flashcards:", e);
     }
   }, [flashcards]);
 
   useEffect(() => {
-    if (Object.keys(reviewData).length > 0) {
+    if (!allowLocalPersistRef.current) return;
+    try {
       localStorage.setItem("ace-it-review-data", JSON.stringify(reviewData));
+    } catch (e) {
+      console.error("Failed to persist review data:", e);
     }
   }, [reviewData]);
 
