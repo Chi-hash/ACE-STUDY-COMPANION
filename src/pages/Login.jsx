@@ -369,7 +369,7 @@ const Login = () => {
       <header>
         <div className="header-left">
           <img src={brandLogo} alt="AceIt" className="acelogo" />
-          <h4>Ace</h4>
+          <h4>AceIt</h4>
         </div>
         <div className="header-right">
           <Link to="/register">
@@ -585,7 +585,7 @@ const Login = () => {
       </section>
 
       <footer className="login-footer">
-        <p>© 2025 Ace Inc. All Rights Reserved.</p>
+        <p>© 2025 AceIt. All Rights Reserved.</p>
       </footer>
     </>
   );

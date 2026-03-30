@@ -79,8 +79,8 @@ async function sendEmailJsReminder({ toEmail, title, dueDateIso }) {
       user_id: publicKey,
       template_params: {
         to_email: toEmail,
-        subject: `Ace study reminder: ${title}`,
-        message: `You have a study task coming up.\n\nTask: ${title}\nDue: ${dueStr}\n\nOpen Ace to view your calendar and tasks.`,
+        subject: `AceIt study reminder: ${title}`,
+        message: `You have a study task coming up.\n\nTask: ${title}\nDue: ${dueStr}\n\nOpen AceIt to view your calendar and tasks.`,
         reply_to: toEmail,
       },
     }),
@@ -146,7 +146,7 @@ export async function processReminderEmails(reminders, { userEmail, userId }) {
       Notification.permission === "granted"
     ) {
       try {
-        new Notification(`Ace — ${title}`, { body, tag: key, silent: false });
+        new Notification(`AceIt — ${title}`, { body, tag: key, silent: false });
         delivered = true;
       } catch (e) {
         console.warn("Reminder notification failed:", e);
@@ -227,7 +227,7 @@ export async function maybeSendDailyStudyDigest(reminders, { userEmail, userId }
           user_id: import.meta.env.VITE_EMAILJS_PUBLIC_KEY,
           template_params: {
             to_email: userEmail,
-            subject: "Ace — your study plan for today",
+            subject: "AceIt — your study plan for today",
             message,
             reply_to: userEmail,
           },
@@ -245,9 +245,9 @@ export async function maybeSendDailyStudyDigest(reminders, { userEmail, userId }
     Notification.permission === "granted"
   ) {
     try {
-      new Notification("Ace — today's study tasks", {
+      new Notification("AceIt — today's study tasks", {
         body: todayTasks.length
-          ? `${todayTasks.length} task(s) due today. Open Ace for details.`
+          ? `${todayTasks.length} task(s) due today. Open AceIt for details.`
           : message,
         tag: digestKey,
       });
