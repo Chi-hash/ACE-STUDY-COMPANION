@@ -89,8 +89,15 @@
   flex-wrap: wrap;
 }
 
+.resources-search {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
 .resources-search input {
-  min-width: 280px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
   border: 1px solid var(--border);
@@ -546,6 +553,26 @@
   .resources-subject-grid {
     grid-template-columns: 1fr;
   }
+
+  .resources-controls {
+    align-items: stretch;
+  }
+
+  .resources-search {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .resources-header-wrapper {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .resource-preview-overlay {
+    padding: 0.75rem;
+  }
 }
 
 @keyframes fadeIn {
@@ -589,8 +616,8 @@
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: white;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -633,6 +660,91 @@
   border: none;
   background: white;
   border-radius: 0.5rem;
+}
+
+.resource-preview-office,
+.resource-preview-office-external {
+  width: 100%;
+  max-width: 36rem;
+  padding: 1.5rem;
+  text-align: center;
+  color: #fafafa;
+  background: rgba(24, 24, 27, 0.95);
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.resource-preview-office-icon {
+  font-size: 2.5rem;
+  color: #a78bfa;
+  margin-bottom: 0.75rem;
+}
+
+.resource-preview-office-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.resource-preview-office-copy {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #d4d4d8;
+  margin: 0 0 1.25rem;
+  text-align: left;
+}
+
+.resource-preview-office-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.resource-preview-download-btn-primary {
+  background: #7c3aed !important;
+  border-color: transparent !important;
+}
+
+.resource-preview-office-external {
+  max-width: 1000px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.resource-preview-office-external .resource-preview-frame {
+  min-height: min(70vh, 640px);
+}
+
+.resource-preview-office-hint {
+  font-size: 0.85rem;
+  color: #a1a1aa;
+  margin: 0;
+  text-align: center;
+}
+
+.resource-preview-text {
+  width: 100%;
+  height: 100%;
+  max-height: min(75vh, 720px);
+  margin: 0;
+  padding: 1rem 1.25rem;
+  overflow: auto;
+  text-align: left;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #e4e4e7;
+  background: #18181b;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .resource-preview-image {

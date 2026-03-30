@@ -4,6 +4,7 @@ import "../styles/resources.css";
 import { libraryAPI, recommendationsAPI, summaryAPI } from "../services/apiClient.js";
 import { auth } from "../assets/js/firebase.js";
 import { getResourceId } from "./Chatbot/utils";
+import { showAppToast } from "../utils/toastBus.js";
 
 const DEFAULT_TYPES = ["All", "Video", "Article", "PDF", "Document", "Link"];
 const DEFAULT_SORT = ["Newest", "Oldest", "A-Z"];
@@ -15,6 +16,66 @@ const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
   const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?#]+)/);
   return match ? `https://www.youtube.com/embed/${match[1]}` : null;
+};
+
+const TEXT_PREVIEW_MAX_BYTES = 750_000;
+
+const TEXT_LIKE_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "markdown",
+  "csv",
+  "log",
+  "json",
+  "css",
+  "html",
+  "htm",
+]);
+
+/** Extension from URL path or filename (strip query). */
+const fileExtension = (pathOrName) => {
+  if (!pathOrName) return "";
+  const base = String(pathOrName).split("?")[0];
+  const i = base.lastIndexOf(".");
+  if (i < 0) return "";
+  return base.slice(i + 1).toLowerCase();
+};
+
+const resourceLooksTextLike = (resource) => {
+  const ext =
+    fileExtension(resource?.url) || fileExtension(resource?.title || "");
+  return TEXT_LIKE_EXTENSIONS.has(ext);
+};
+
+/** Safe download name with extension (avoids UUID-only names from the server). */
+const officeDownloadName = (title, ext) => {
+  const e = (ext || "docx").toLowerCase().replace(/^\./, "");
+  const raw = String(title || `document.${e}`).replace(/[\\/:*?"<>|]+/g, "-").trim();
+  if (!raw) return `document.${e}`;
+  return fileExtension(raw) === e ? raw : `${raw}.${e}`;
+};
+
+const officeMimeExtension = (mime) => {
+  const m = (mime || "").toLowerCase();
+  if (m.includes("wordprocessingml") || m === "application/msword") return "docx";
+  if (m.includes("spreadsheetml") || m.includes("ms-excel")) return "xlsx";
+  if (m.includes("presentationml") || m.includes("mspowerpoint")) return "pptx";
+  return "";
+};
+
+const suggestedDownloadFileName = (resource) => {
+  const fromTitle = fileExtension(resource?.title || "");
+  const fromMime = officeMimeExtension(resource?.blobMimeType);
+  const fromUrl = fileExtension(resource?.url || "");
+  const ext = ["docx", "xlsx", "pptx", "doc", "ppt", "xls"].includes(fromTitle)
+    ? fromTitle
+    : ["docx", "xlsx", "pptx", "doc", "ppt", "xls"].includes(fromMime)
+      ? fromMime
+      : ["docx", "xlsx", "pptx", "doc", "ppt", "xls"].includes(fromUrl)
+        ? fromUrl
+        : "";
+  if (ext) return officeDownloadName(resource?.title, ext);
+  return resource?.title?.trim() || "download";
 };
 
 const inferType = (item) => {
@@ -227,11 +288,34 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const blob = await response.blob();
+      const mime = (blob.type || "").toLowerCase();
+      let textPreview = null;
+      const tryText =
+        blob.size <= TEXT_PREVIEW_MAX_BYTES &&
+        (mime.startsWith("text/") ||
+          mime === "application/json" ||
+          mime === "application/javascript" ||
+          mime === "text/markdown" ||
+          mime.endsWith("+json") ||
+          resourceLooksTextLike(resource));
+      if (tryText) {
+        try {
+          textPreview = await blob.text();
+        } catch {
+          textPreview = null;
+        }
+      }
+
       // Revoke any previous blob URL before creating a new one
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = URL.createObjectURL(blob);
 
-      setPreviewResource({ ...resource, blobUrl: blobUrlRef.current });
+      setPreviewResource({
+        ...resource,
+        blobUrl: blobUrlRef.current,
+        blobMimeType: blob.type || "",
+        textPreview,
+      });
     } catch {
       // Fall back to the raw URL — at least the modal will open
       setPreviewResource(resource);
@@ -402,7 +486,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
         subject: item.subject || "General",
         duration: item.duration || "—",
         type: inferType(item),
-        url: item.url || "",
+        url: item.url ? normalizeUrl(item.url) : "",
         createdAt: normalizeDate(item.createdAt) || null,
         source: item.source || "Saved",
       })),
@@ -484,6 +568,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
     const maxSizeMB = 10;
     if (file.size > maxSizeMB * 1024 * 1024) {
       setSummaryUploadError(`File is too large. Please upload a file under ${maxSizeMB} MB.`);
+      showAppToast("error", `File too large — max ${maxSizeMB} MB for summaries.`);
       return;
     }
 
@@ -514,6 +599,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
         if (badSummary) {
           await summaryAPI.deleteSummary(badSummary.id);
         }
+        showAppToast("info", "Could not read that file — try a PDF or .txt.");
         return;
       }
       const response = await summaryAPI.getSummaries();
@@ -527,6 +613,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
       }
 
       setSummaries(fetchedSummaries);
+      showAppToast("success", "Summary generated — find it under Summaries.");
     } catch (err) {
       console.error("Summary generation failed:", err);
       const status = err?.response?.status;
@@ -537,6 +624,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
       } else {
         setSummaryUploadError("Could not generate summary. Try a PDF file under 5 MB.");
       }
+      showAppToast("error", "Could not generate summary from that file.");
     } finally {
       setSummaryUploading(false);
       if (summaryInputRef.current) summaryInputRef.current.value = "";
@@ -553,9 +641,11 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
         localStorage.setItem("ace-summary-titles", JSON.stringify(updated));
         return updated;
       });
+      showAppToast("success", "Summary removed.");
     } catch (err) {
       console.error("Summary delete failed:", err);
       setSummaryError("Failed to delete summary.");
+      showAppToast("error", "Could not delete that summary.");
     }
   };
 
@@ -582,6 +672,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
     setSavedResources(updated);
     localStorage.setItem("ace-it-resources", JSON.stringify(updated));
     setActiveTab("saved");
+    showAppToast("success", `Saved “${resource.title || "resource"}” to your list.`);
   };
 
   const handleDeleteDocument = async (docId, title) => {
@@ -603,10 +694,12 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
       }
       setSubjectMap(updatedMap);
       persistSubjectMap(updatedMap);
+      showAppToast("success", title ? `“${title}” removed from library.` : "Document removed from library.");
     } catch (err) {
       console.error("Delete failed:", err);
       setError("Failed to delete document. Please try again.");
       setDocuments(previousDocs);
+      showAppToast("error", "Could not delete that document.");
     } finally {
       setDeletingId(null);
     }
@@ -621,6 +714,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
     const uid = auth.currentUser?.uid;
     if (!uid) {
       setError("Please log in to upload documents.");
+      showAppToast("error", "Log in to upload documents.");
       return;
     }
 
@@ -688,9 +782,15 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
       setActiveTab("library");
       setShowSubjectModal(false);
       setPendingFiles([]);
+      const n = pendingFiles.length;
+      showAppToast(
+        "success",
+        `${n} document${n === 1 ? "" : "s"} uploaded to ${subject}.`
+      );
     } catch (err) {
       console.error("Upload failed:", err);
       setError("Upload failed. Please try again.");
+      showAppToast("error", "Upload failed — try again.");
     } finally {
       setUploading(false);
     }
@@ -1132,7 +1232,7 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
               </a>
               <a
                 href={previewResource.blobUrl || previewResource.url}
-                download={previewResource.title}
+                download={suggestedDownloadFileName(previewResource)}
                 className="resource-preview-action-btn"
                 title="Download"
               >
@@ -1145,19 +1245,56 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
           </div>
           <div className="resource-preview-content" onClick={(e) => e.stopPropagation()}>
             {(() => {
-              // Always prefer the blob URL (no Content-Disposition headers)
               const displayUrl = previewResource.blobUrl || previewResource.url;
-              const originalUrl = previewResource.url;
-              const type = previewResource.type?.toLowerCase();
-              const knownExts = ['pdf','jpg','jpeg','png','gif','webp','svg','mp4','webm','ogg','doc','docx','ppt','pptx','xls','xlsx'];
-              const rawExt = originalUrl.split('?')[0].split('.').pop()?.toLowerCase() || '';
-              const extension = knownExts.includes(rawExt) ? rawExt : '';
-
-              const isImage = type === 'image' || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension);
-              const isVideo = type === 'video' || ['mp4', 'webm', 'ogg'].includes(extension);
-              const isPdf = type === 'pdf' || extension === 'pdf';
-              const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(extension);
+              const originalUrl = previewResource.url || "";
+              const metaType = (previewResource.type || "").toLowerCase();
+              const mime = (previewResource.blobMimeType || "").toLowerCase();
               const youtubeEmbedUrl = getYouTubeEmbedUrl(originalUrl);
+
+              const knownExts = [
+                "pdf",
+                "jpg",
+                "jpeg",
+                "png",
+                "gif",
+                "webp",
+                "svg",
+                "mp4",
+                "webm",
+                "ogg",
+                "doc",
+                "docx",
+                "ppt",
+                "pptx",
+                "xls",
+                "xlsx",
+              ];
+              const extUrl = fileExtension(originalUrl);
+              const extTitle = fileExtension(previewResource.title || "");
+              const extension =
+                knownExts.includes(extUrl) ? extUrl : knownExts.includes(extTitle) ? extTitle : "";
+
+              const isImage =
+                metaType === "image" ||
+                mime.startsWith("image/") ||
+                ["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(extension);
+              const isVideo =
+                metaType === "video" ||
+                mime.startsWith("video/") ||
+                ["mp4", "webm", "ogg"].includes(extension);
+              const isPdf =
+                metaType === "pdf" ||
+                mime === "application/pdf" ||
+                mime.includes("pdf") ||
+                extension === "pdf";
+              const officeExtGuess = officeMimeExtension(mime);
+              const isOffice =
+                ["doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(extension) ||
+                Boolean(officeExtGuess);
+              const officeExt =
+                extension ||
+                officeExtGuess ||
+                (isOffice ? "docx" : "");
 
               if (youtubeEmbedUrl) {
                 return (
@@ -1169,48 +1306,115 @@ export function Resources({ selectedResourceIds = [], setSelectedResourceIds = (
                     allowFullScreen
                   />
                 );
-              } else if (isImage) {
+              }
+
+              if (previewResource.textPreview != null) {
                 return (
-                  <img src={displayUrl} alt={previewResource.title} className="resource-preview-image" />
+                  <pre className="resource-preview-text" tabIndex={0}>
+                    {previewResource.textPreview}
+                  </pre>
                 );
-              } else if (isVideo) {
+              }
+
+              if (isImage) {
+                return (
+                  <img
+                    src={displayUrl}
+                    alt={previewResource.title}
+                    className="resource-preview-image"
+                  />
+                );
+              }
+              if (isVideo) {
                 return (
                   <video controls className="resource-preview-video">
                     <source src={displayUrl} />
                     Your browser does not support the video tag.
                   </video>
                 );
-              } else if (isPdf) {
+              }
+              if (isPdf) {
                 return (
-                  <iframe src={displayUrl} title={previewResource.title} className="resource-preview-frame" />
-                );
-              } else if (isOffice) {
-                // Office files: use blob URL if available, otherwise Google Docs Viewer
-                return previewResource.blobUrl ? (
-                  <iframe src={displayUrl} title={previewResource.title} className="resource-preview-frame" />
-                ) : (
                   <iframe
-                    src={`https://docs.google.com/viewer?url=${encodeURIComponent(originalUrl)}&embedded=true`}
+                    src={displayUrl}
                     title={previewResource.title}
                     className="resource-preview-frame"
                   />
                 );
-              } else {
+              }
+              if (isOffice) {
+                const downloadName = officeDownloadName(
+                  previewResource.title,
+                  officeExt,
+                );
+                // Blob/docx in an iframe is always a blank page — browsers can’t render Office XML.
+                if (previewResource.blobUrl) {
+                  return (
+                    <div className="resource-preview-office">
+                      <FaFileAlt className="resource-preview-office-icon" aria-hidden />
+                      <p className="resource-preview-office-title">
+                        Office file preview isn’t available in the browser
+                      </p>
+                      <p className="resource-preview-office-copy">
+                        Word, Excel, and PowerPoint files are downloaded securely; they don’t display
+                        inside this window. Use <strong>Download</strong> with your file name below,
+                        then open the file on your device (Word, Pages, etc.).
+                      </p>
+                      <div className="resource-preview-office-actions">
+                        <a
+                          href={displayUrl}
+                          download={downloadName}
+                          className="resource-preview-download-btn resource-preview-download-btn-primary"
+                        >
+                          <FaDownload style={{ marginRight: "0.5rem" }} />
+                          Download “{downloadName}”
+                        </a>
+                        <a
+                          href={displayUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="resource-preview-download-btn"
+                        >
+                          <FaExternalLinkAlt style={{ marginRight: "0.5rem" }} />
+                          Open in new tab
+                        </a>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
-                  <div className="resource-preview-unsupported">
-                    <p>This file type cannot be previewed directly.</p>
-                    <a
-                      href={displayUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="resource-preview-download-btn"
-                    >
-                      <FaExternalLinkAlt style={{ marginRight: '0.5rem' }} />
-                      Open Link
-                    </a>
+                  <div className="resource-preview-office-external">
+                    <iframe
+                      src={`https://docs.google.com/viewer?url=${encodeURIComponent(originalUrl)}&embedded=true`}
+                      title={previewResource.title}
+                      className="resource-preview-frame"
+                    />
+                    <p className="resource-preview-office-hint">
+                      If this stays blank, the link may be private — use{" "}
+                      <strong>Open in new tab</strong> or <strong>Download</strong> above.
+                    </p>
                   </div>
                 );
               }
+
+              return (
+                <div className="resource-preview-unsupported">
+                  <p>
+                    This file isn’t shown in the built-in viewer (unknown type or the link
+                    doesn’t allow embedding). Use <strong>Open in new tab</strong> or{" "}
+                    <strong>Download</strong> above.
+                  </p>
+                  <a
+                    href={displayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="resource-preview-download-btn"
+                  >
+                    <FaExternalLinkAlt style={{ marginRight: "0.5rem" }} />
+                    Open in new tab
+                  </a>
+                </div>
+              );
             })()}
           </div>
         </div>

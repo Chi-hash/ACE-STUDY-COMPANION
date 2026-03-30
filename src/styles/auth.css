@@ -551,6 +551,17 @@ input::placeholder {
   text-align: center;
 }
 
+.info-message {
+  color: #0369a1;
+  background: #f0f9ff;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+  border: 1px solid #bae6fd;
+  text-align: center;
+}
+
 /* =========================
    Register Section
    ========================= */

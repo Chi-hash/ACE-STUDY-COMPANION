@@ -1376,6 +1376,20 @@
   pointer-events: none;
 }
 
+/* Top-centered: login flash + global activity (all sections) */
+.log-toast.dashboard-global-toast {
+  bottom: auto;
+  top: 1rem;
+  z-index: 10050;
+  max-width: min(92vw, 420px);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.1rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
+}
+
 .log-toast-success {
   background: var(--chart-2);
   color: white;
@@ -1383,6 +1397,11 @@
 
 .log-toast-error {
   background: var(--chart-3);
+  color: white;
+}
+
+.log-toast-info {
+  background: #0369a1;
   color: white;
 }
 

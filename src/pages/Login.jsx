@@ -27,6 +27,9 @@ const FIREBASE_ERRORS = {
   "auth/network-request-failed": "Network error. Please check your connection.",
   "auth/invalid-verification-code": "Invalid verification code. Please try again.",
   "auth/code-expired": "Verification code expired. Please request a new one.",
+  "auth/account-exists-with-different-credential":
+    "An account already exists with this email using a different sign-in method. Try Google or reset password.",
+  "auth/popup-blocked": "Your browser blocked the sign-in popup. Allow popups for this site and try again.",
 };
 
 const getFriendlyError = (err) => {
@@ -131,6 +134,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [unverifiedUser, setUnverifiedUser] = useState(null);
   const [resendSent, setResendSent] = useState(false);
 
@@ -191,6 +195,7 @@ const Login = () => {
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setError("");
+    setInfo("");
     setUnverifiedUser(null);
     setResendSent(false);
     setLoading(true);
@@ -214,6 +219,13 @@ const Login = () => {
         displayName: user.displayName || email.split("@")[0],
       }));
       localStorage.setItem("firebase_token", idToken);
+      sessionStorage.setItem(
+        "aceit_login_flash",
+        JSON.stringify({
+          type: "success",
+          message: `Welcome back, ${user.displayName || email.split("@")[0]} — you're signed in.`,
+        })
+      );
       navigate("/dashboard");
     } catch (err) {
       console.error("Login error:", err);
@@ -235,6 +247,7 @@ const Login = () => {
 
   const handleGoogleLogin = async () => {
     setError("");
+    setInfo("");
     setLoading(true);
 
     try {
@@ -250,6 +263,13 @@ const Login = () => {
 
       localStorage.setItem("userData", JSON.stringify(userData));
       localStorage.setItem("firebase_token", idToken);
+      sessionStorage.setItem(
+        "aceit_login_flash",
+        JSON.stringify({
+          type: "success",
+          message: "Signed in with Google — loading your dashboard.",
+        })
+      );
       navigate("/dashboard");
     } catch (err) {
       if (err?.code === "auth/popup-closed-by-user" || err?.code === "auth/cancelled-popup-request") {
@@ -266,6 +286,7 @@ const Login = () => {
   const handlePhoneSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setInfo("");
     setLoading(true);
 
     const fullPhoneNumber = `${countryCode}${phoneInput.replace(/\D/g, "")}`;
@@ -292,6 +313,7 @@ const Login = () => {
       const confirmation = await signInWithPhoneNumber(auth, fullPhoneNumber, window.recaptchaVerifier);
       setConfirmationResult(confirmation);
       setPhoneStep("INPUT_OTP");
+      setInfo("Verification code sent — check your SMS messages.");
     } catch (err) {
       console.error("Phone auth error:", err);
       setError(getFriendlyError(err) || "Failed to send verification code.");
@@ -312,6 +334,7 @@ const Login = () => {
   const handleVerifyCode = async (e) => {
     e.preventDefault();
     setError("");
+    setInfo("");
     setLoading(true);
 
     try {
@@ -325,6 +348,13 @@ const Login = () => {
 
       localStorage.setItem("userData", JSON.stringify(userData));
       localStorage.setItem("firebase_token", idToken);
+      sessionStorage.setItem(
+        "aceit_login_flash",
+        JSON.stringify({
+          type: "success",
+          message: "Signed in with your phone — welcome back.",
+        })
+      );
       navigate("/dashboard");
     } catch (err) {
       console.error("OTP error:", err);
@@ -365,14 +395,22 @@ const Login = () => {
             <div className="middle">
               <button
                 className={`tab-btn ${activeTab === "email" ? "active" : ""}`}
-                onClick={() => setActiveTab("email")}
+                onClick={() => {
+                  setActiveTab("email");
+                  setError("");
+                  setInfo("");
+                }}
                 disabled={loading}
               >
                 Email
               </button>
               <button
                 className={`tab-btn ${activeTab === "phone" ? "active" : ""}`}
-                onClick={() => setActiveTab("phone")}
+                onClick={() => {
+                  setActiveTab("phone");
+                  setError("");
+                  setInfo("");
+                }}
                 disabled={loading}
               >
                 Phone
@@ -380,6 +418,7 @@ const Login = () => {
             </div>
 
             <div className="bottom">
+              {info && !error && <div className="info-message">{info}</div>}
               {error && (
                 <div className="error-message">
                   {error}
@@ -529,6 +568,7 @@ const Login = () => {
                             setPhoneStep("INPUT_PHONE");
                             setOtp("");
                             setError("");
+                            setInfo("");
                           }}
                           disabled={loading}
                         >

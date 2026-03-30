@@ -15,6 +15,11 @@ import {
 } from "react-icons/fa";
 import { remindersAPI } from "../services/apiClient";
 import { auth } from "../assets/js/firebase";
+import {
+  showAppToast,
+  scheduleAppToast,
+  cancelScheduledToast,
+} from "../utils/toastBus.js";
 
 const StudyCalendar = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -287,6 +292,7 @@ const StudyCalendar = () => {
       (event) => event.planId !== planId
     );
     saveLocalEvents(updatedEvents);
+    showAppToast("success", `Study plan "${planTitle}" removed from your calendar.`);
   };
 
   const resolvePlanDayDate = (dayValue, index, startDate) => {
@@ -320,9 +326,23 @@ const StudyCalendar = () => {
         ...newEvent,
         date: eventDate,
         completed: false,
-        isApi: false
+        isApi: false,
       };
-      
+
+      if (newEvent.type === "reminder" && eventDate.getTime() > Date.now()) {
+        const scheduleId = scheduleAppToast({
+          fireAt: eventDate.getTime(),
+          type: "info",
+          title: "Reminder",
+          message:
+            newEvent.description?.trim() ||
+            newEvent.title ||
+            "Calendar reminder",
+          actions: [{ label: "Open calendar", navigateTo: "/calendar" }],
+        });
+        if (scheduleId) event.scheduledToastId = scheduleId;
+      }
+
       const updatedEvents = [...localEvents, event];
       saveLocalEvents(updatedEvents);
       
@@ -336,6 +356,7 @@ const StudyCalendar = () => {
         priority: "medium",
       });
       setShowCreateDialog(false);
+      showAppToast("success", `Event "${newEvent.title}" added to your calendar.`);
     }
   };
 
@@ -348,13 +369,19 @@ const StudyCalendar = () => {
         await remindersAPI.deleteReminder(apiId);
         setApiEvents(apiEvents.filter(e => e.id !== id));
         notifyCalendarUpdate();
+        showAppToast("success", "Reminder removed from the server.");
       } catch (err) {
         console.error("Failed to delete API reminder", err);
-        alert("Could not delete this server event");
+        showAppToast("error", "Could not delete this reminder on the server.");
       }
     } else {
+      const removed = localEvents.find((event) => event.id === id);
+      if (removed?.scheduledToastId) {
+        cancelScheduledToast(removed.scheduledToastId);
+      }
       const updated = localEvents.filter((event) => event.id !== id);
       saveLocalEvents(updated);
+      showAppToast("success", "Event removed from your calendar.");
     }
   };
 
@@ -370,16 +397,24 @@ const StudyCalendar = () => {
         }
         // If uncompleting, no API endpoint in provided list, so we just stick with local optimistic update until refresh
         notifyCalendarUpdate();
+        if (!currentStatus) {
+          showAppToast("success", "Task marked complete.");
+        } else {
+          showAppToast("info", "Task reopened.");
+        }
       } catch (err) {
         console.error("Failed to update API reminder", err);
         // Revert
         setApiEvents(apiEvents.map(e => e.id === id ? { ...e, completed: currentStatus } : e));
+        showAppToast("error", "Could not update this task on the server.");
       }
     } else {
       const updated = localEvents.map((event) =>
         event.id === id ? { ...event, completed: !event.completed } : event
       );
       saveLocalEvents(updated);
+      const nowDone = !currentStatus;
+      showAppToast(nowDone ? "success" : "info", nowDone ? "Task marked complete." : "Task reopened.");
     }
   };
 
@@ -464,6 +499,7 @@ const StudyCalendar = () => {
 
       if (!response.study_plan || !Array.isArray(response.study_plan)) {
         setPlanError("Plan generated, but no schedule was returned.");
+        showAppToast("info", "No schedule returned from the server for that plan.");
       } else {
         const planId = `plan-${Date.now()}`;
         const generatedEvents = response.study_plan.flatMap((day, index) => {
@@ -544,6 +580,12 @@ const StudyCalendar = () => {
 
         if (generatedEvents.length === 0) {
           setPlanError("Plan generated, but no dated items were created.");
+          showAppToast("info", "Study plan created, but no calendar dates were added.");
+        } else {
+          showAppToast(
+            "success",
+            `Study plan "${planData.title}" added — ${generatedEvents.length} calendar item${generatedEvents.length === 1 ? "" : "s"}.`
+          );
         }
       }
 
@@ -558,6 +600,7 @@ const StudyCalendar = () => {
     } catch (err) {
       console.error("Failed to create study plan:", err);
       setPlanError("Could not generate study plan.");
+      showAppToast("error", "Could not generate study plan. Try again later.");
     } finally {
       setPlanSubmitting(false);
     }

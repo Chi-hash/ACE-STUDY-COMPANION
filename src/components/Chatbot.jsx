@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../styles/chatbot.css";
 import { chatAPI, libraryAPI, userAPI } from "../services/apiClient.js";
+import { showAppToast } from "../utils/toastBus.js";
 import { auth } from "../assets/js/firebase.js";
 
 // Sub-components
@@ -190,10 +191,15 @@ export function Chatbot({
     };
   }, []);
 
-  const selectedDocuments = useMemo(() => {
-    return documents.filter((doc, index) => 
-      selectedResourceIds.includes(getResourceId(doc, index))
-    );
+  /** Stable { doc, index, id } for picker + input chips (index matches library list). */
+  const selectedResourceEntries = useMemo(() => {
+    return documents
+      .map((doc, index) => ({
+        doc,
+        index,
+        id: getResourceId(doc, index),
+      }))
+      .filter(({ id }) => selectedResourceIds.includes(id));
   }, [documents, selectedResourceIds]);
 
   const globalContext = useMemo(() => {
@@ -212,10 +218,20 @@ Library Resources: ${docTitles}
   }, [userProfile, documents]);
 
   const resizeTextarea = useCallback(() => {
-    if (!textareaRef.current) return;
-    textareaRef.current.style.height = "auto";
-    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-  }, []);
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    if (!input.trim()) {
+      const cs = getComputedStyle(el);
+      const lh = parseFloat(cs.lineHeight);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const fontSize = parseFloat(cs.fontSize) || 16;
+      const line = Number.isFinite(lh) && lh > 0 ? lh : 1.45 * fontSize;
+      el.style.height = `${Math.ceil(line + padY)}px`;
+      return;
+    }
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [input]);
 
   useEffect(() => {
     resizeTextarea();
@@ -239,9 +255,11 @@ Library Resources: ${docTitles}
       setActiveSessionId(newId);
       setMessages([]);
       setShowMobileSidebar(false);
+      showAppToast("success", "New chat started.");
     } catch (err) {
       console.error("Create session error:", err);
       setError("Could not start a new chat.");
+      showAppToast("error", "Could not start a new chat.");
     }
   };
 
@@ -251,16 +269,22 @@ Library Resources: ${docTitles}
     const targetSessionId = sessionOverride || activeSessionId;
     const trimmed = textToUse.trim();
     const hasAttachments = attachments.length > 0;
-    
-    // If not forcing, we do the standard isSending check
-    if ((!trimmed && !hasAttachments) || !targetSessionId || (!forceSend && isSending)) return;
-    
-    setIsSending(true);
-    setError("");
-
     const activeResources = documents.filter((doc, index) =>
       selectedResourceIds.includes(getResourceId(doc, index)),
     );
+    const hasResources = activeResources.length > 0;
+
+    // If not forcing, we do the standard isSending check
+    if (
+      (!trimmed && !hasAttachments && !hasResources) ||
+      !targetSessionId ||
+      (!forceSend && isSending)
+    ) {
+      return;
+    }
+
+    setIsSending(true);
+    setError("");
     const attachmentSummary = hasAttachments
       ? attachments.map((file) => `- ${file.name} (${file.typeLabel})`).join("\n")
       : "";
@@ -281,6 +305,20 @@ Library Resources: ${docTitles}
       createdAt: now,
     }));
 
+    const resourceMessages = documents
+      .map((doc, index) => ({ doc, index }))
+      .filter(({ doc, index }) =>
+        selectedResourceIds.includes(getResourceId(doc, index)),
+      )
+      .map(({ doc, index }, i) => ({
+        id: `user-resource-${Date.now()}-${i}`,
+        role: "user",
+        type: "resource",
+        content: getResourceTitle(doc, index),
+        resourceSubject: getResourceSubject(doc),
+        createdAt: now,
+      }));
+
     const userMessage = trimmed
       ? {
           id: `user-${Date.now()}`,
@@ -291,7 +329,12 @@ Library Resources: ${docTitles}
         }
       : null;
 
-    setMessages((prev) => [...prev, ...attachmentMessages, ...(userMessage ? [userMessage] : [])]);
+    setMessages((prev) => [
+      ...prev,
+      ...attachmentMessages,
+      ...resourceMessages,
+      ...(userMessage ? [userMessage] : []),
+    ]);
     if (textOverride === null) {
       setInput("");
     }
@@ -342,6 +385,7 @@ Library Resources: ${docTitles}
     } catch (err) {
       console.error("Send message error:", err);
       setError("Message failed. Please try again.");
+      showAppToast("error", "Message failed — check your connection and try again.");
     } finally {
       setIsSending(false);
     }
@@ -382,6 +426,7 @@ Library Resources: ${docTitles}
     } catch (err) {
       console.error("Send audio error:", err);
       setError("Audio message failed. Please try again.");
+      showAppToast("error", "Voice message failed — try again.");
     } finally {
       setIsSending(false);
     }
@@ -400,9 +445,11 @@ Library Resources: ${docTitles}
       await chatAPI.clearMemory(activeSessionId);
       setMessages([]);
       localStorage.removeItem(`ace-it-chat-messages-${activeSessionId}`);
+      showAppToast("success", "This chat’s memory was cleared.");
     } catch (err) {
       console.error("Clear memory error:", err);
       setError("Failed to clear chat memory.");
+      showAppToast("error", "Could not clear chat memory.");
     } finally {
       setIsSending(false);
     }
@@ -433,6 +480,7 @@ Library Resources: ${docTitles}
     
     // Clean up messages from local storage
     localStorage.removeItem(`ace-it-chat-messages-${sessionId}`);
+    showAppToast("info", "Chat removed from your sidebar.");
   }, [activeSessionId, sessions]);
 
   const handleKeyDown = (event) => {
@@ -510,6 +558,7 @@ Library Resources: ${docTitles}
 
       } catch (err) {
         console.error("Failed to process quick ask:", err);
+        showAppToast("error", "Couldn’t open quick question in chat.");
       }
     };
 
@@ -586,7 +635,7 @@ Library Resources: ${docTitles}
             fileInputRef={fileInputRef}
             audioInputRef={audioInputRef}
             textareaRef={textareaRef}
-            selectedDocuments={selectedDocuments}
+            selectedResourceEntries={selectedResourceEntries}
             setSelectedResourceIds={setSelectedResourceIds}
             handleSendAudio={handleSendAudio}
           />

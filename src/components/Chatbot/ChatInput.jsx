@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { FaImage, FaPaperclip, FaMicrophone, FaPaperPlane, FaStop, FaBook } from "react-icons/fa";
 import useSpeechRecognition from "../../hooks/useSpeechRecognition";
 import useAudioRecorder from "../../hooks/useAudioRecorder";
-import { getResourceId, getResourceTitle } from "./utils";
+import { getResourceTitle } from "./utils";
 
 export function ChatInput({
   input,
@@ -17,7 +17,7 @@ export function ChatInput({
   imageInputRef,
   fileInputRef,
   textareaRef,
-  selectedDocuments = [],
+  selectedResourceEntries = [],
   setSelectedResourceIds = () => {},
   handleSendAudio = () => {},
 }) {
@@ -67,10 +67,9 @@ export function ChatInput({
         }
       />
 
-      {(attachments.length > 0 || selectedDocuments.length > 0) && (
+      {(attachments.length > 0 || selectedResourceEntries.length > 0) && (
         <div className="chatbot-attachments">
-          {selectedDocuments.map((doc, index) => {
-            const id = getResourceId(doc, index);
+          {selectedResourceEntries.map(({ doc, index, id }) => {
             const title = getResourceTitle(doc, index);
             return (
               <div key={id} className="chatbot-attachment-chip library-resource">
@@ -78,7 +77,7 @@ export function ChatInput({
                 <span>{title}</span>
                 <button
                   type="button"
-                  onClick={() => setSelectedResourceIds(prev => prev.filter(vid => vid !== id))}
+                  onClick={() => setSelectedResourceIds((prev) => prev.filter((vid) => vid !== id))}
                   aria-label={`Remove ${title}`}
                 >
                   ×
@@ -134,7 +133,8 @@ export function ChatInput({
         <textarea
           ref={textareaRef}
           rows={1}
-          placeholder="Message Assistant..."
+          placeholder="Message…"
+          aria-label="Message assistant"
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -146,7 +146,9 @@ export function ChatInput({
           disabled={
             !activeSessionId ||
             isSending ||
-            (!input.trim() && attachments.length === 0)
+            (!input.trim() &&
+              attachments.length === 0 &&
+              selectedResourceEntries.length === 0)
           }
         >
           <FaPaperPlane />

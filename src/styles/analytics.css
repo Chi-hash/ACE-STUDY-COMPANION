@@ -362,6 +362,17 @@
     align-items: flex-start;
   }
 
+  .analytics-range {
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .analytics-range-btn {
+    min-height: 2.75rem;
+    padding: 0.45rem 0.85rem;
+  }
+
   .analytics-stats-grid {
     grid-template-columns: 1fr;
   }
@@ -374,6 +385,16 @@
   .analytics-subject-meta {
     flex-direction: column;
     gap: 0.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .analytics-page {
+    padding: 1.25rem 0.75rem 2.5rem;
+  }
+
+  .analytics-header-text h2 {
+    font-size: 1.45rem;
   }
 }
 

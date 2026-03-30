@@ -1833,3 +1833,45 @@ body {
     height: auto;
   }
 }
+
+/* Success feedback after creating / saving flashcards */
+.flashcard-success-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: 0.65rem;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.06));
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #166534;
+  font-size: 0.95rem;
+  font-weight: 600;
+  animation: flashcard-success-in 0.35s ease-out;
+}
+
+.dark .flashcard-success-banner {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.08));
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #86efac;
+}
+
+.flashcard-success-banner__icon {
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  color: #22c55e;
+}
+
+.dark .flashcard-success-banner__icon {
+  color: #4ade80;
+}
+
+@keyframes flashcard-success-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

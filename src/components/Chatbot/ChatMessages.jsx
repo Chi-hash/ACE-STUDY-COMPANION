@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { FaVolumeUp, FaStop } from "react-icons/fa";
+import { FaVolumeUp, FaStop, FaBook } from "react-icons/fa";
 
 // Splits text into alternating non-math / math segments.
 // Handles: $$...$$, \begin{...}...\end{...}, and inline $...$
@@ -177,6 +177,24 @@ const renderMessageContent = (message) => {
                 {formatFileSize(message.fileSize)}
               </span>
             ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.type === "resource") {
+    return (
+      <div className="chatbot-message-bubble file resource">
+        <div className="chatbot-file-card">
+          <FaBook className="chatbot-resource-bubble-icon" aria-hidden />
+          <div>
+            <span className="chatbot-attachment-name">{message.content}</span>
+            <span className="chatbot-attachment-meta">
+              {message.resourceSubject || "General"}
+              {" · "}
+              From your library
+            </span>
           </div>
         </div>
       </div>

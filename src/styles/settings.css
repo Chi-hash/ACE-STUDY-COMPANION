@@ -32,6 +32,15 @@
   flex: 1;
 }
 
+.settings-code-inline {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72em;
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
 .settings-actions {
   display: flex;
   gap: 0.75rem;
@@ -337,7 +346,110 @@
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 2-column habit fields */
+/* Study context: single column — avoids uneven two-column rows */
+.habits-fields-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+}
+
+.habit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.habit-panel-participation {
+  padding-bottom: 0.25rem;
+}
+
+.habit-stars-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.habit-panel-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  max-width: 40rem;
+}
+
+/* Read-only absences — horizontal metric card */
+.habit-metric-card {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.15rem;
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+
+.habit-metric-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  flex-wrap: wrap;
+}
+
+.habit-metric-copy {
+  flex: 1;
+  min-width: min(100%, 220px);
+}
+
+.habit-metric-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+}
+
+.habit-metric-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.habit-metric-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  vertical-align: middle;
+}
+
+.habit-metric-desc {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  max-width: 36rem;
+}
+
+.habit-metric-value {
+  flex-shrink: 0;
+  min-width: 3.25rem;
+  padding: 0.55rem 1rem;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  user-select: none;
+}
+
+/* Legacy grid (unused) — keep for safety if referenced elsewhere */
 .habits-fields-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -429,7 +541,6 @@
   display: flex;
   align-items: center;
   gap: 0.1rem;
-  margin-top: 0.3rem;
 }
 
 .habit-star {
@@ -473,13 +584,14 @@
   box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 79, 70, 229), 0.12);
 }
 
-/* ── Tutoring toggle row (inside habits grid) ────────────────────── */
+/* ── Tutoring row (inside study context stack) ─────────────────── */
 .habit-toggle-row {
   display: flex;
   justify-content: space-between;
-  align-items: start;
+  align-items: flex-start;
   gap: 1.5rem;
-  padding-top: 1rem;
+  padding-top: 1.15rem;
+  margin-top: 0.15rem;
   border-top: 1px solid var(--border);
 }
 
@@ -752,6 +864,16 @@
   .habits-fields-grid {
     grid-template-columns: 1fr;
     gap: 1.25rem;
+  }
+
+  .habit-metric-inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .habit-metric-value {
+    align-self: center;
+    min-width: 5rem;
   }
 
   .habit-toggle-row {

@@ -9,6 +9,7 @@ vi.mock('react-icons/fa', () => ({
   FaMicrophone: () => <span data-testid="fa-microphone" />,
   FaPaperPlane: () => <span data-testid="fa-paper-plane" />,
   FaStop: () => <span data-testid="fa-stop" />,
+  FaBook: () => <span data-testid="fa-book" />,
 }));
 
 // Mock useSpeechRecognition
@@ -52,21 +53,21 @@ describe('ChatInput', () => {
 
   it('renders correctly', () => {
     render(<ChatInput {...defaultProps} />);
-    expect(screen.getByPlaceholderText('Message Assistant...')).toBeDefined();
+    expect(screen.getByPlaceholderText('Message…')).toBeDefined();
     expect(screen.getByTestId('fa-image')).toBeDefined();
     expect(screen.getByTestId('fa-paperclip')).toBeDefined();
   });
 
   it('calls setInput on textarea change', () => {
     render(<ChatInput {...defaultProps} />);
-    const textarea = screen.getByPlaceholderText('Message Assistant...');
+    const textarea = screen.getByPlaceholderText('Message…');
     fireEvent.change(textarea, { target: { value: 'Hello' } });
     expect(mockSetInput).toHaveBeenCalledWith('Hello');
   });
 
   it('calls handleSend on form submit', () => {
     render(<ChatInput {...defaultProps} input="Hello" />);
-    const form = screen.getByPlaceholderText('Message Assistant...').closest('form');
+    const form = screen.getByPlaceholderText('Message…').closest('form');
     fireEvent.submit(form);
     expect(mockHandleSend).toHaveBeenCalled();
   });
@@ -76,6 +77,21 @@ describe('ChatInput', () => {
     render(<ChatInput {...defaultProps} input="" attachments={[]} />);
     const sendButton = screen.getByTestId('fa-paper-plane').parentElement;
     expect(sendButton.disabled).toBe(true);
+  });
+
+  it('enables send when library resources are selected without text', () => {
+    render(
+      <ChatInput
+        {...defaultProps}
+        input=""
+        attachments={[]}
+        selectedResourceEntries={[
+          { doc: { title: 'Notes.pdf' }, index: 0, id: 'doc-1' },
+        ]}
+      />,
+    );
+    const sendButton = screen.getByTestId('fa-paper-plane').parentElement;
+    expect(sendButton.disabled).toBe(false);
   });
 
   it('renders attachments correctly', () => {

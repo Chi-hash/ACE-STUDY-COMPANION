@@ -4,6 +4,9 @@ import { signOut } from "firebase/auth";
 import { FaCamera, FaCloud } from "react-icons/fa";
 import { auth } from "../assets/js/firebase.js";
 import { userAPI } from "../services/apiClient.js";
+import { requestReminderNotificationPermission } from "../services/reminderEmailService.js";
+import { showAppToast } from "../utils/toastBus.js";
+import { ACEIT_SETTINGS_KEY } from "../utils/studySettings.js";
 import "../styles/settings.css";
 
 const PROFILE_PIC_KEY = "aceit_profile_picture";
@@ -30,8 +33,6 @@ const compressImage = (file) =>
     img.src = url;
   });
 
-const SETTINGS_KEY = "aceit_settings";
-
 const defaultSettings = (currentUser) => ({
   // Profile
   profileName:
@@ -51,10 +52,6 @@ const defaultSettings = (currentUser) => ({
   dailyStudyGoalMinutes: 30,
   reminderTime: "08:00",
   studyMode: "balanced",
-  // Study Habits — feed ML prediction model
-  sleepHoursPerDay: "",
-  attendancePercentage: "",
-  assignmentsCompleted: "",
   participationLevel: "",
   absences: "",
   tutoring: false,
@@ -69,25 +66,19 @@ const defaultSettings = (currentUser) => ({
 
 const loadSettings = (currentUser) => {
   try {
-    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    const stored = JSON.parse(localStorage.getItem(ACEIT_SETTINGS_KEY) || "{}");
     const merged = { ...defaultSettings(currentUser), ...stored };
     // Migrate old single defaultSubject → subjects array
     if (merged.defaultSubject && (!merged.subjects || !merged.subjects.length)) {
       merged.subjects = [merged.defaultSubject];
     }
+    delete merged.sleepHoursPerDay;
+    delete merged.attendancePercentage;
+    delete merged.assignmentsCompleted;
     return merged;
   } catch {
     return defaultSettings(currentUser);
   }
-};
-
-/** Returns an inline style that fills the slider track up to the thumb. */
-const sliderFill = (value, min, max) => {
-  const v = parseFloat(value) || 0;
-  const pct = Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100));
-  return {
-    background: `linear-gradient(to right, var(--primary) ${pct}%, var(--muted) ${pct}%)`,
-  };
 };
 
 export function Settings({ currentUser }) {
@@ -141,19 +132,6 @@ export function Settings({ currentUser }) {
             : p.subject
             ? [p.subject]
             : prev.subjects,
-          // BUG FIX: only skip null/undefined, not 0 (0 is valid for absences etc.)
-          sleepHoursPerDay:
-            p.sleep_hours_per_day != null
-              ? String(p.sleep_hours_per_day)
-              : prev.sleepHoursPerDay,
-          attendancePercentage:
-            p.attendance_percentage != null
-              ? String(p.attendance_percentage)
-              : prev.attendancePercentage,
-          assignmentsCompleted:
-            p.assignment_completed != null
-              ? String(p.assignment_completed)
-              : prev.assignmentsCompleted,
           participationLevel:
             p.participation_level != null
               ? String(p.participation_level)
@@ -216,11 +194,24 @@ export function Settings({ currentUser }) {
     }
   };
 
+  const handleToggleEmailAlerts = (e) => {
+    const checked = e.target.checked;
+    setFormState((prev) => ({ ...prev, notificationsEmail: checked }));
+    if (checked) void requestReminderNotificationPermission();
+  };
+
+  const handleTogglePushAlerts = (e) => {
+    const checked = e.target.checked;
+    setFormState((prev) => ({ ...prev, notificationsPush: checked }));
+    if (checked) void requestReminderNotificationPermission();
+  };
+
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async (event) => {
     event.preventDefault();
     setStatus("saving");
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(formState));
+    localStorage.setItem(ACEIT_SETTINGS_KEY, JSON.stringify(formState));
+    window.dispatchEvent(new CustomEvent("aceit_settings_updated"));
     try {
       const payload = {
         name: formState.profileName || undefined,
@@ -229,31 +220,11 @@ export function Settings({ currentUser }) {
         school_name: formState.profileSchool || undefined,
         degree: formState.profileDegree || undefined,
         subject: formState.subjects.length ? formState.subjects : undefined,
-        sleep_hours_per_day:
-          formState.sleepHoursPerDay !== ""
-            ? parseFloat(formState.sleepHoursPerDay)
-            : undefined,
-        attendance_percentage:
-          formState.attendancePercentage !== ""
-            ? parseFloat(formState.attendancePercentage)
-            : undefined,
-        assignment_completed:
-          formState.assignmentsCompleted !== ""
-            ? parseFloat(formState.assignmentsCompleted)
-            : undefined,
         participation_level:
           formState.participationLevel !== ""
             ? parseInt(formState.participationLevel, 10)
             : undefined,
-        // Send both casings — backend might store as "absences" or "Absences"
-        absences:
-          formState.absences !== ""
-            ? parseInt(formState.absences, 10)
-            : undefined,
-        Absences:
-          formState.absences !== ""
-            ? parseInt(formState.absences, 10)
-            : undefined,
+        // Absences are computed server-side from study activity / streaks — do not send
         // Same for tutoring
         tutoring: formState.tutoring ? 1 : 0,
         Tutoring: formState.tutoring ? 1 : 0,
@@ -262,8 +233,9 @@ export function Settings({ currentUser }) {
         (k) => payload[k] === undefined && delete payload[k]
       );
       await userAPI.updateProfile(payload);
+      showAppToast("success", "Profile & settings synced to the cloud.");
     } catch {
-      // Local save already succeeded
+      showAppToast("info", "Saved on this device — cloud sync failed. Try again later.");
     }
     setLastSynced(new Date());
     setStatus("saved");
@@ -281,15 +253,12 @@ export function Settings({ currentUser }) {
     }));
     setStatus("saved");
     setTimeout(() => setStatus("idle"), 2000);
+    showAppToast("info", "Study preferences reset — tap Save to sync to the cloud.");
   };
 
-  // ── Habit completeness (6 fields incl. tutoring) ─────────────────────────
+  // ── Optional profile fields the user can set (not server-computed metrics) ──
   const habitCompleteness = [
-    formState.sleepHoursPerDay !== "",
-    formState.attendancePercentage !== "",
-    formState.assignmentsCompleted !== "",
     formState.participationLevel !== "",
-    formState.absences !== "",
     formState.tutoring === true,
   ];
   const filledCount = habitCompleteness.filter(Boolean).length;
@@ -570,15 +539,15 @@ export function Settings({ currentUser }) {
         </section>
 
         {/* ════════════════════════════════════════
-            STUDY HABITS (AI Prediction Model)
+            STUDY CONTEXT (optional profile)
         ════════════════════════════════════════ */}
         <section className="settings-card settings-habits-card">
           <h2 className="settings-section-title" style={{ marginBottom: "0.3rem" }}>
-            Study Habits (AI Prediction Model)
+            Study context
           </h2>
           <p className="habits-subtitle">
-            These metrics power your personalized AI prediction tools. Keep them
-            updated for the best results.
+            Performance predictions use your app activity — streaks, quiz scores,
+            and logged study time. These fields are optional extras for your profile.
           </p>
 
           {/* Completeness bar */}
@@ -615,109 +584,39 @@ export function Settings({ currentUser }) {
               </button>
             </div>
           ) : (
-            <div className="habits-fields-grid">
+            <div className="habits-fields-stack">
 
-              {/* Sleep */}
-              <div className="habit-field">
-                <span className="habit-field-label">Average sleep per night</span>
-                <input
-                  type="range"
-                  className="habit-slider"
-                  min="0"
-                  max="12"
-                  step="0.5"
-                  value={formState.sleepHoursPerDay !== "" ? formState.sleepHoursPerDay : 0}
-                  onChange={handleChange("sleepHoursPerDay")}
-                  style={sliderFill(formState.sleepHoursPerDay || 0, 0, 12)}
-                />
-                <div className="habit-slider-labels">
-                  <span>0 hrs</span>
-                  <span className="slider-current">
-                    {formState.sleepHoursPerDay !== ""
-                      ? `${formState.sleepHoursPerDay} hrs`
-                      : "—"}
-                  </span>
-                  <span>12 hrs</span>
-                </div>
-              </div>
-
-              {/* Attendance */}
-              <div className="habit-field">
-                <span className="habit-field-label">Class attendance rate</span>
-                <input
-                  type="range"
-                  className="habit-slider"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={formState.attendancePercentage !== "" ? formState.attendancePercentage : 0}
-                  onChange={handleChange("attendancePercentage")}
-                  style={sliderFill(formState.attendancePercentage || 0, 0, 100)}
-                />
-                <div className="habit-slider-labels">
-                  <span>0%</span>
-                  <span className="slider-current">
-                    {formState.attendancePercentage !== ""
-                      ? `${formState.attendancePercentage}%`
-                      : "—"}
-                  </span>
-                  <span>100%</span>
-                </div>
-              </div>
-
-              {/* Assignments */}
-              <div className="habit-field">
-                <span className="habit-field-label">Assignments completed</span>
-                <input
-                  type="range"
-                  className="habit-slider"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={formState.assignmentsCompleted !== "" ? formState.assignmentsCompleted : 0}
-                  onChange={handleChange("assignmentsCompleted")}
-                  style={sliderFill(formState.assignmentsCompleted || 0, 0, 100)}
-                />
-                <div className="habit-slider-labels">
-                  <span>0%</span>
-                  <span className="slider-current">
-                    {formState.assignmentsCompleted !== ""
-                      ? `${formState.assignmentsCompleted}%`
-                      : "—"}
-                  </span>
-                  <span>100%</span>
-                </div>
-              </div>
-
-              {/* Participation */}
-              <div className="habit-field">
+              {/* Participation — full width */}
+              <div className="habit-panel habit-panel-participation">
                 <span className="habit-field-label">Class participation level</span>
-                <div className="habit-stars">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`habit-star${
-                        parseInt(formState.participationLevel || 0) >= n ? " active" : ""
-                      }`}
-                      onClick={() =>
-                        setFormState((prev) => ({
-                          ...prev,
-                          participationLevel: String(n),
-                        }))
-                      }
-                      title={["Never", "Rarely", "Sometimes", "Often", "Always"][n - 1]}
-                    >
-                      ★
-                    </button>
-                  ))}
+                <div className="habit-stars-row">
+                  <div className="habit-stars">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`habit-star${
+                          parseInt(formState.participationLevel || 0) >= n ? " active" : ""
+                        }`}
+                        onClick={() =>
+                          setFormState((prev) => ({
+                            ...prev,
+                            participationLevel: String(n),
+                          }))
+                        }
+                        title={["Never", "Rarely", "Sometimes", "Often", "Always"][n - 1]}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
                   <span className="habit-star-label">
                     {formState.participationLevel
                       ? `${formState.participationLevel}/5`
                       : "Not set"}
                   </span>
                 </div>
-                <small className="field-hint" style={{ marginTop: "0.35rem" }}>
+                <p className="habit-panel-hint">
                   {[
                     "",
                     "Never participates",
@@ -726,28 +625,36 @@ export function Settings({ currentUser }) {
                     "Often participates",
                     "Always participates",
                   ][parseInt(formState.participationLevel || 0)] ||
-                    "Select your level"}
-                </small>
+                    "Optional — how often you take part in class discussions."}
+                </p>
               </div>
 
-              {/* Absences */}
-              <div className="habit-field habit-field-narrow">
-                <span className="habit-field-label">Number of absences</span>
-                <input
-                  className="absences-input"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  placeholder="0"
-                  value={formState.absences}
-                  onChange={handleChange("absences")}
-                />
-                <small className="field-hint">0 = perfect attendance 🎉</small>
+              {/* Absences — read-only metric strip */}
+              <div
+                className="habit-metric-card"
+                title="Value from the server based on study streaks and logged sessions"
+              >
+                <div className="habit-metric-inner">
+                  <div className="habit-metric-copy">
+                    <div className="habit-metric-heading">
+                      <span className="habit-metric-title">Absences</span>
+                      <span className="habit-metric-badge">From your activity</span>
+                    </div>
+                    <p className="habit-metric-desc">
+                      Updates when you study in the app. Missed streak days increase this
+                      count.
+                    </p>
+                  </div>
+                  <div className="habit-metric-value" role="status">
+                    {formState.absences !== "" && formState.absences != null
+                      ? formState.absences
+                      : "—"}
+                  </div>
+                </div>
               </div>
 
-              {/* Tutoring — full-width toggle row */}
-              <div className="habit-field habit-field-full habit-toggle-row">
+              {/* Tutoring */}
+              <div className="habit-panel habit-toggle-row">
                 <div>
                   <span className="habit-field-label" style={{ fontSize: "0.9rem", color: "var(--foreground)" }}>
                     Tutoring Services
@@ -767,7 +674,6 @@ export function Settings({ currentUser }) {
                   </span>
                 </label>
               </div>
-
             </div>
           )}
         </section>
@@ -783,14 +689,18 @@ export function Settings({ currentUser }) {
               <div>
                 <span className="toggle-row-title">Email alerts</span>
                 <small className="toggle-row-desc">
-                  Receive weekly summaries and important announcements via email.
+                  Study reminders near due time and a daily summary at your reminder time.
+                  Uses browser notifications by default; add EmailJS keys in{" "}
+                  <code className="settings-code-inline">.env</code> (see{" "}
+                  <code className="settings-code-inline">reminderEmailService.js</code>
+                  ) to send real email.
                 </small>
               </div>
               <label className="toggle-switch" aria-label="Email alerts">
                 <input
                   type="checkbox"
                   checked={formState.notificationsEmail}
-                  onChange={handleChange("notificationsEmail")}
+                  onChange={handleToggleEmailAlerts}
                 />
                 <span className="toggle-track">
                   <span className="toggle-thumb" />
@@ -809,7 +719,7 @@ export function Settings({ currentUser }) {
                 <input
                   type="checkbox"
                   checked={formState.notificationsPush}
-                  onChange={handleChange("notificationsPush")}
+                  onChange={handleTogglePushAlerts}
                 />
                 <span className="toggle-track">
                   <span className="toggle-thumb" />

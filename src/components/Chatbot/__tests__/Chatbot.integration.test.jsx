@@ -34,7 +34,7 @@ vi.mock('../ChatInput', () => ({
   default: ({ setInput, handleSend }) => (
     <div data-testid="chat-input">
       <input 
-        placeholder="Message Assistant..." 
+        placeholder="Message…" 
         onChange={(e) => setInput(e.target.value)}
       />
       <button onClick={handleSend}>Send</button>
@@ -99,7 +99,7 @@ describe('Chatbot Integration', () => {
       expect(screen.getByTestId('chat-input')).toBeDefined();
     });
 
-    const textarea = screen.getByPlaceholderText('Message Assistant...');
+    const textarea = screen.getByPlaceholderText('Message…');
     fireEvent.change(textarea, { target: { value: 'Hello AI' } });
     
     const sendButton = screen.getByText('Send');

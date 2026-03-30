@@ -6,7 +6,13 @@ import React, {
   useMemo,
 } from "react";
 import "../styles/flashcard.css";
-import { flashcardAPI, userAPI, analyticsAPI } from "../services/apiClient.js";
+import {
+  flashcardAPI,
+  userAPI,
+  analyticsAPI,
+  activityAPI,
+} from "../services/apiClient.js";
+import { showAppToast } from "../utils/toastBus.js";
 import { auth } from "../assets/js/firebase.js";
 import {
   FaPlus,
@@ -366,6 +372,8 @@ export function Flashcards() {
   const [newSubjectName, setNewSubjectName] = useState("");
   const [editingCard, setEditingCard] = useState(null);
   const [deletingCard, setDeletingCard] = useState(null);
+  const [flashcardSuccessMsg, setFlashcardSuccessMsg] = useState("");
+  const flashcardSuccessTimerRef = useRef(null);
 
   // Streak state
   const [streakData, setStreakData] = useState(() =>
@@ -376,6 +384,33 @@ export function Flashcards() {
   const fileInputRef = useRef(null);
   const studySessionStartTime = useRef(null);
   const isMounted = useRef(true);
+
+  const showFlashcardSuccess = useCallback((msg) => {
+    setFlashcardSuccessMsg(msg);
+    if (flashcardSuccessTimerRef.current) {
+      clearTimeout(flashcardSuccessTimerRef.current);
+    }
+    flashcardSuccessTimerRef.current = setTimeout(() => {
+      setFlashcardSuccessMsg("");
+      flashcardSuccessTimerRef.current = null;
+    }, 2000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (flashcardSuccessTimerRef.current) {
+        clearTimeout(flashcardSuccessTimerRef.current);
+      }
+    };
+  }, []);
+
+  const renderSuccessBanner = () =>
+    flashcardSuccessMsg ? (
+      <div className="flashcard-success-banner" role="status">
+        <FaCheckCircle className="flashcard-success-banner__icon" aria-hidden />
+        <span>{flashcardSuccessMsg}</span>
+      </div>
+    ) : null;
 
   // ==================== HELPER FUNCTIONS ====================
   const calculateStudyDuration = useCallback(
@@ -750,6 +785,7 @@ export function Flashcards() {
         console.error("Error loading flashcard data:", error);
         if (isMounted.current) {
           setError("Failed to load flashcard data. Using local storage only.");
+          showAppToast("info", "Flashcards loaded from this device only — server unavailable.");
         }
       } finally {
         if (isMounted.current) {
@@ -891,6 +927,14 @@ export function Flashcards() {
       const elapsedMs = Date.now() - studySessionStartTime.current.getTime();
       durationHours = Math.max(elapsedMs / (1000 * 60 * 60), 0);
     }
+    const sessionHoursToLog = Math.max(durationHours, 5 / 60);
+    activityAPI.logActivity(sessionHoursToLog).catch(() => {});
+
+    showAppToast(
+      "success",
+      `Study session complete — ${cardsStudied} card${cardsStudied === 1 ? "" : "s"} reviewed; study time logged.`
+    );
+
     triggerStreakUpdate("flashcards_completed", cardsStudied, durationHours);
 
     setCurrentCardIndex(0);
@@ -1043,16 +1087,27 @@ export function Flashcards() {
           setMode("previewGenerated");
         }
 
+        showAppToast(
+          "success",
+          `Generated ${generated.length} flashcard${generated.length === 1 ? "" : "s"} from your file.`
+        );
+
         if (response.isMock) {
           setError(
             "Backend unavailable. Using sample flashcards. You can edit these before saving."
+          );
+          showAppToast(
+            "info",
+            "Using offline sample cards — connect to the server for full AI generation."
           );
         }
       }
     } catch (error) {
       console.error("Error generating flashcards:", error);
       if (isMounted.current) {
-        setError(error.message || "Failed to generate flashcards");
+        const msg = error.message || "Failed to generate flashcards";
+        setError(msg);
+        showAppToast("error", msg);
       }
     } finally {
       if (isMounted.current) {
@@ -1100,11 +1155,17 @@ export function Flashcards() {
       setGeneratedCards([]);
       setUploadedFile(null);
       setMode("subjects");
-
-      alert(`${cardsToSave.length} flashcards saved successfully!`);
+      showFlashcardSuccess(
+        `${cardsToSave.length} flashcard${cardsToSave.length === 1 ? "" : "s"} saved to your collection.`
+      );
+      showAppToast(
+        "success",
+        `${cardsToSave.length} flashcard${cardsToSave.length === 1 ? "" : "s"} added to your collection.`
+      );
     } catch (error) {
       console.error("Error saving generated cards:", error);
       setError("Failed to save generated cards");
+      showAppToast("error", "Could not save generated flashcards.");
     }
   };
 
@@ -1154,10 +1215,15 @@ export function Flashcards() {
 
         setGeneratedCards(generated);
         setMode("previewGenerated");
+        showAppToast(
+          "success",
+          `${generated.length} flashcard${generated.length === 1 ? "" : "s"} generated from text.`
+        );
       }
     } catch (error) {
       console.error("Error generating flashcards from text:", error);
       setError("Failed to generate flashcards from text");
+      showAppToast("error", "Could not generate flashcards from that text.");
     } finally {
       setIsGenerating(false);
     }
@@ -1185,9 +1251,13 @@ export function Flashcards() {
     if (backendStatus === "available") {
       try {
         await userAPI.updateProfile({ subject: updatedSubjects });
+        showAppToast("success", `Subject "${newSubjectName.trim()}" added and synced.`);
       } catch (error) {
         console.error("Failed to update subjects on backend:", error);
+        showAppToast("info", `Subject added locally — cloud sync failed.`);
       }
+    } else {
+      showAppToast("success", `Subject "${newSubjectName.trim()}" added.`);
     }
     
     setNewSubjectName("");
@@ -1212,6 +1282,8 @@ export function Flashcards() {
         front: "",
         back: "",
       }));
+      showFlashcardSuccess("Flashcard created successfully.");
+      showAppToast("success", "New flashcard saved.");
     }
   };
 
@@ -1219,15 +1291,21 @@ export function Flashcards() {
     const cardToDelete = flashcards.find((card) => card.id === id);
     if (!cardToDelete) return;
 
+    let serverOk = true;
     if (backendStatus === "available" && cardToDelete?.flashcardSetId) {
       try {
         await flashcardAPI.deleteFlashcards(cardToDelete.flashcardSetId);
       } catch (error) {
         console.error("Error deleting from backend:", error);
+        serverOk = false;
       }
     }
 
     setFlashcards((prev) => prev.filter((card) => card.id !== id));
+    showAppToast(
+      serverOk ? "success" : "info",
+      serverOk ? "Flashcard deleted." : "Removed on this device — server delete failed."
+    );
   };
 
   const handleDeleteCard = (id) => {
@@ -1553,6 +1631,7 @@ export function Flashcards() {
                   )
                 );
                 setEditingCard(null);
+                showAppToast("success", "Flashcard updated.");
               }}
               disabled={!editingCard.front.trim() || !editingCard.back.trim()}
             >
@@ -1990,6 +2069,7 @@ export function Flashcards() {
   if (mode === "create") {
     return (
       <div className="flashcards-container space-y-6">
+        {renderSuccessBanner()}
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold">Create New Flashcard</h3>
           <button
@@ -2404,6 +2484,7 @@ export function Flashcards() {
   // Default: Subjects View
   return (
     <div className="flashcards-container space-y-6">
+      {renderSuccessBanner()}
       {/* Header */}
       <div className="flashcards-header">
         <div>

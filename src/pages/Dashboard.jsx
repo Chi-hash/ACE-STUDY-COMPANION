@@ -1,6 +1,7 @@
 // src/pages/Dashboard.jsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import StudyLayout from "../components/StudyLayout";
+import GlobalToastHost from "../components/GlobalToastHost";
 import Flashcards from "../components/Flashcard";
 import StudyCalendar from "../components/StudyCalendar";
 import { Analytics } from "../components/Analytics";
@@ -17,6 +18,12 @@ import {
   dashboardAPI,
 } from "../services/apiClient.js";
 import "../styles/dashboard.css";
+import { showAppToast } from "../utils/toastBus.js";
+import {
+  readWeeklyGoalHoursFromStorage,
+  computeWeeklyProgressPercent,
+  ACEIT_SETTINGS_KEY,
+} from "../utils/studySettings.js";
 import {
   FaBookOpen,
   FaCalendarAlt,
@@ -87,12 +94,12 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     studiedToday: 0,
     dueToday: 0,
   });
-  const [studyStats, setStudyStats] = useState({
-    weeklyGoal: 100,
+  const [studyStats, setStudyStats] = useState(() => ({
+    weeklyGoal: readWeeklyGoalHoursFromStorage(),
     weeklyProgress: 0,
     studyStreak: 0,
     totalStudyHours: 0,
-  });
+  }));
 
   const [performancePrediction, setPerformancePrediction] = useState(null);
   const [predictionLoading, setPredictionLoading] = useState(false);
@@ -105,11 +112,21 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
   const [quoteFading, setQuoteFading] = useState(false);
   const [logLoading, setLogLoading] = useState(false);
   const [logSuccess, setLogSuccess] = useState(false);
-  const [logActivityToast, setLogActivityToast] = useState(null);
-
-  const showToast = useCallback((type, msg) => {
-    setLogActivityToast({ type, msg });
-    setTimeout(() => setLogActivityToast(null), 3500);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("aceit_login_flash");
+      if (!raw) return;
+      sessionStorage.removeItem("aceit_login_flash");
+      const data = JSON.parse(raw);
+      if (data?.message) {
+        showAppToast(
+          data.type === "error" ? "error" : "success",
+          data.message,
+        );
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const upcomingTasksFiltered = useMemo(() => {
@@ -163,13 +180,8 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
   };
 
   const calculateWeeklyProgress = useCallback(
-    (weeklyHours) => {
-      const hours = Number(weeklyHours);
-      if (!Number.isFinite(hours) || hours <= 0) return 0;
-      const goal = Number(studyStats.weeklyGoal) || 0;
-      if (!goal) return 0;
-      return Math.min(Math.round((hours / goal) * 100), 100);
-    },
+    (weeklyHours) =>
+      computeWeeklyProgressPercent(weeklyHours, studyStats.weeklyGoal),
     [studyStats.weeklyGoal]
   );
 
@@ -319,6 +331,10 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       } catch (backendError) {
         console.log("Backend unavailable, using local data");
         setBackendAvailable(false);
+        setStudyStats((prev) => ({
+          ...prev,
+          weeklyGoal: readWeeklyGoalHoursFromStorage(),
+        }));
         if (!silent) {
           const localFlashcards = localStorage.getItem("ace-it-flashcards");
           if (localFlashcards) {
@@ -343,12 +359,17 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
         // Debug: Check user subjects
         console.log("User subjects:", profile.subject);
 
-        if (profile?.study_hours_per_week != null) {
-          setStudyStats((prev) => ({
-            ...prev,
-            weeklyProgress: calculateWeeklyProgress(profile.study_hours_per_week),
-          }));
-        }
+        const weeklyGoalHours = readWeeklyGoalHoursFromStorage();
+        setStudyStats((prev) => {
+          const next = { ...prev, weeklyGoal: weeklyGoalHours };
+          if (profile?.study_hours_per_week != null) {
+            next.weeklyProgress = computeWeeklyProgressPercent(
+              profile.study_hours_per_week,
+              weeklyGoalHours
+            );
+          }
+          return next;
+        });
       }
 
       // Handle gamification data
@@ -469,19 +490,6 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
       } catch (flashcardError) {
         console.log("Flashcard analytics not available");
       }
-
-      // Fetch performance prediction (silent fail — backend may 500)
-      if (!silent) {
-        setPredictionLoading(true);
-        try {
-          const pred = await analyticsAPI.getPerformancePrediction();
-          if (pred?.ok) setPerformancePrediction(pred);
-        } catch {
-          // Backend issue — silently ignore
-        } finally {
-          setPredictionLoading(false);
-        }
-      }
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
       if (!silent) {
@@ -534,6 +542,30 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
   useEffect(() => {
     setCurrentSection(initialSection);
   }, [initialSection]);
+
+  // Weekly goal lives in Settings (localStorage); keep dashboard % in sync when it changes
+  useEffect(() => {
+    const syncGoalFromSettings = () => {
+      const goal = readWeeklyGoalHoursFromStorage();
+      setStudyStats((prev) => {
+        const weekHrs = userProfile?.study_hours_per_week;
+        const weeklyProgress =
+          weekHrs != null
+            ? computeWeeklyProgressPercent(weekHrs, goal)
+            : prev.weeklyProgress;
+        return { ...prev, weeklyGoal: goal, weeklyProgress };
+      });
+    };
+    window.addEventListener("aceit_settings_updated", syncGoalFromSettings);
+    const onStorage = (e) => {
+      if (e.key === ACEIT_SETTINGS_KEY) syncGoalFromSettings();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("aceit_settings_updated", syncGoalFromSettings);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [userProfile?.study_hours_per_week]);
 
   // Sync streak with local storage and listen for updates
   useEffect(() => {
@@ -610,7 +642,15 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
         }));
       }
 
-      showToast("success", `✅ Logged ${hrs}h study session!`);
+      try {
+        const pred = await analyticsAPI.getPerformancePrediction();
+        if (pred?.ok) setPerformancePrediction(pred);
+      } catch {
+        // Prediction refresh is best-effort
+      }
+
+      showAppToast("success", `Logged ${hrs}h study session.`);
+      window.dispatchEvent(new CustomEvent("aceit_activity_logged"));
       setLogHours("");
     } catch (error) {
       console.error("Error logging activity:", error);
@@ -619,7 +659,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
         ...prev,
         totalStudyHours: prev.totalStudyHours + hrs,
       }));
-      showToast("error", "Saved locally — couldn't sync with server.");
+      showAppToast("error", "Study time saved locally — couldn't sync with server.");
       setLogHours("");
     }
   };
@@ -714,13 +754,6 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
     // Default dashboard content
     return (
       <div className="dashboard-container space-y-6">
-        {/* Activity toast */}
-        {logActivityToast && (
-          <div className={`log-toast log-toast-${logActivityToast.type}`}>
-            {logActivityToast.msg}
-          </div>
-        )}
-
         {/* Hero */}
         <div className="dashboard-hero">
           <div className="dashboard-hero-left">
@@ -1048,98 +1081,167 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
 
         {/* Performance Prediction */}
         {(() => {
-          // ── Confidence expressed as "probability of PASSING" ──────────────
+          // ── API `confidence` is always P(pass) = proba[1]*100 (see predict_performance).
+          // Do NOT use 100 - rawConf when prediction is 0 — that is P(fail) mislabeled as pass chance.
           const rawConf = performancePrediction?.confidence || 0;
           const isPass  = performancePrediction?.prediction === 1;
-          const passChance = Math.round(isPass ? rawConf : 100 - rawConf);
+          const passChance = Math.round(Math.min(100, Math.max(0, rawConf)));
 
           // Strip backend's embedded "(Confidence: X%)." — we show it ourselves
           const cleanMessage = (performancePrediction?.message || "")
             .replace(/\(Confidence:\s*[\d.]+%\)\.\s*/gi, "")
             .trim();
 
-          // ── Factor breakdown from ml_input ────────────────────────────────
+          // ── Factor breakdown from ml_input ─────────────────────────────────
+          // Backend (student-success-chatbot) still returns XGBoost feature names;
+          // telemetry is mapped server-side from /log_activity, streaks, and quizzes.
+          // See: https://github.com/okefemi12/student-success-chatbot
           const ml = performancePrediction?.ml_input || {};
-
-          // Each factor: { label, value (display string), status, tip }
           const STATUS = { good: "good", warn: "warn", bad: "bad" };
 
-          const rateStudyHours = (v) =>
-            v >= 15 ? STATUS.good : v >= 8 ? STATUS.warn : STATUS.bad;
-          const rateAttendance = (v) =>
-            v >= 80 ? STATUS.good : v >= 60 ? STATUS.warn : STATUS.bad;
-          const rateSleep = (v) =>
-            v >= 7 && v <= 9 ? STATUS.good : v >= 5.5 ? STATUS.warn : STATUS.bad;
-          const rateAssignments = (v) =>
-            v >= 80 ? STATUS.good : v >= 60 ? STATUS.warn : STATUS.bad;
-          const rateParticipation = (v) =>
-            v >= 4 ? STATUS.good : v >= 2 ? STATUS.warn : STATUS.bad;
-          const rateAbsences = (v) =>
-            v <= 2 ? STATUS.good : v <= 5 ? STATUS.warn : STATUS.bad;
+          const pick = (obj, keys) => {
+            for (const k of keys) {
+              const v = obj[k];
+              if (v != null && v !== "") return { key: k, value: v };
+            }
+            return null;
+          };
 
-          const allFactors = [
-            {
-              key: "study_hours_per_week",
+          /** Model often sends fractions in 0–1; treat larger values as already %-like */
+          const asPercentDisplay = (v) => {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return null;
+            if (n >= 0 && n <= 1) return n * 100;
+            return n;
+          };
+
+          const rateWeeklyHours = (h) =>
+            h >= 15 ? STATUS.good : h >= 8 ? STATUS.warn : STATUS.bad;
+          const rateEngagementPct = (pct) =>
+            pct >= 80 ? STATUS.good : pct >= 60 ? STATUS.warn : STATUS.bad;
+          const rateQuizPct = (pct) =>
+            pct >= 75 ? STATUS.good : pct >= 55 ? STATUS.warn : STATUS.bad;
+
+          const factorRows = [];
+
+          let weeklyH = null;
+          if (ml.StudyTimeWeekly != null && ml.StudyTimeWeekly !== "") {
+            weeklyH = Number(ml.StudyTimeWeekly);
+          }
+          if (!Number.isFinite(weeklyH) && ml.study_hours_per_week != null) {
+            weeklyH = Number(ml.study_hours_per_week) * 40;
+          }
+          if (Number.isFinite(weeklyH)) {
+            factorRows.push({
+              key: "weekly_study_hours",
               label: "Weekly study hours",
-              display: ml.study_hours_per_week != null ? `${ml.study_hours_per_week}h / wk` : null,
-              raw: ml.study_hours_per_week,
-              status: rateStudyHours(ml.study_hours_per_week ?? 0),
-              tip: "Aim for ≥ 15 hrs/week",
-            },
-            {
-              key: "attendance_percentage",
-              label: "Class attendance",
-              display: ml.attendance_percentage != null ? `${ml.attendance_percentage}%` : null,
-              raw: ml.attendance_percentage,
-              status: rateAttendance(ml.attendance_percentage ?? 0),
-              tip: "Attend ≥ 80% of classes",
-            },
-            {
-              key: "sleep_hours_per_day",
-              label: "Sleep per night",
-              display: ml.sleep_hours_per_day != null ? `${ml.sleep_hours_per_day}h` : null,
-              raw: ml.sleep_hours_per_day,
-              status: rateSleep(ml.sleep_hours_per_day ?? 0),
-              tip: "7–9 hrs is optimal",
-            },
-            {
-              key: "assignments_completed",
-              label: "Assignments done",
-              display: ml.assignments_completed != null ? `${ml.assignments_completed}%` : null,
-              raw: ml.assignments_completed,
-              status: rateAssignments(ml.assignments_completed ?? 0),
-              tip: "Complete ≥ 80% on time",
-            },
-            {
-              key: "participation_level",
-              label: "Class participation",
-              display: ml.participation_level != null ? `${ml.participation_level} / 5` : null,
-              raw: ml.participation_level,
-              status: rateParticipation(ml.participation_level ?? 0),
-              tip: "Aim for a score of 4 or 5",
-            },
-            {
-              key: "absences",
-              label: "Absences",
-              display: ml.absences != null ? `${ml.absences} days` : null,
-              raw: ml.absences,
-              status: rateAbsences(ml.absences ?? 99),
-              tip: "Keep absences ≤ 2 days",
-            },
-          ]
-            // Only show factors where the backend actually sent a value
-            .filter((f) => f.raw != null && f.display != null)
-            // Worst first so the user sees the most critical issues immediately
-            .sort((a, b) => {
-              const order = { bad: 0, warn: 1, good: 2 };
-              return order[a.status] - order[b.status];
+              display: `${weeklyH.toFixed(1)}h`,
+              raw: weeklyH,
+              status: rateWeeklyHours(weeklyH),
+              tip: "Log more focused study hours using the session tracker",
             });
+          }
+
+          const engPct = asPercentDisplay(ml.attendance_percentage);
+          if (engPct != null) {
+            factorRows.push({
+              key: "attendance_percentage",
+              label: "Study consistency",
+              display: `${Math.round(engPct)}%`,
+              raw: ml.attendance_percentage,
+              status: rateEngagementPct(engPct),
+              tip: "Maintain your daily login streak and study sessions",
+            });
+          }
+
+          if (ml.assignments_completed != null && ml.assignments_completed !== "") {
+            const quizPct = asPercentDisplay(ml.assignments_completed);
+            if (quizPct != null) {
+              factorRows.push({
+                key: "assignments_completed",
+                label: "Quiz performance",
+                display: `${Math.round(quizPct)}%`,
+                raw: ml.assignments_completed,
+                status: rateQuizPct(quizPct),
+                tip: "Take more AI quizzes to prove your knowledge retention",
+              });
+            }
+          }
+
+          // Optional extras if API adds them later (or alternate deploys)
+          const streakPick = pick(ml, [
+            "active_streak",
+            "current_streak",
+            "streak",
+            "study_streak",
+          ]);
+          if (streakPick) {
+            const n = Number(streakPick.value);
+            const st =
+              Number.isFinite(n) && n >= 7
+                ? STATUS.good
+                : Number.isFinite(n) && n >= 3
+                  ? STATUS.warn
+                  : STATUS.bad;
+            factorRows.push({
+              key: streakPick.key,
+              label: "Active streak",
+              display: `${streakPick.value} day${Number(streakPick.value) === 1 ? "" : "s"}`,
+              raw: streakPick.value,
+              status: st,
+              tip: "Study most days to build your streak",
+            });
+          }
+
+          const hoursPick = pick(ml, [
+            "session_hours",
+            "total_session_hours",
+            "logged_session_hours",
+            "study_session_hours",
+          ]);
+          if (hoursPick) {
+            const h = Number(hoursPick.value);
+            const st =
+              Number.isFinite(h) && h >= 10
+                ? STATUS.good
+                : Number.isFinite(h) && h >= 3
+                  ? STATUS.warn
+                  : STATUS.bad;
+            factorRows.push({
+              key: hoursPick.key,
+              label: "Logged session hours",
+              display: `${Number.isFinite(h) ? h.toFixed(1) : hoursPick.value}h`,
+              raw: hoursPick.value,
+              status: st,
+              tip: "Finish study sessions and timers to log time",
+            });
+          }
+
+          const quizPick = pick(ml, [
+            "quiz_score_avg",
+            "average_quiz_score",
+            "quiz_scores_average",
+            "quiz_avg",
+            "quiz_average",
+          ]);
+          if (quizPick) {
+            const q = Number(quizPick.value);
+            factorRows.push({
+              key: quizPick.key,
+              label: "Quiz average",
+              display: Number.isFinite(q) ? `${Math.round(q)}%` : String(quizPick.value),
+              raw: quizPick.value,
+              status: rateQuizPct(Number.isFinite(q) ? q : 0),
+              tip: "Take more AI quizzes to improve this signal",
+            });
+          }
+
+          const allFactors = factorRows.sort((a, b) => {
+            const order = { bad: 0, warn: 1, good: 2 };
+            return order[a.status] - order[b.status];
+          });
 
           const hasFactors = allFactors.length > 0;
-          const missingHabits =
-            !ml.sleep_hours_per_day &&
-            !ml.attendance_percentage &&
-            !ml.assignments_completed;
 
           // Icons per status
           const statusIcon = { good: "✅", warn: "⚠️", bad: "❌" };
@@ -1196,34 +1298,18 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
                       </div>
                     )}
 
-                    {/* Generic advice message (no inline confidence text) */}
-                    {cleanMessage && !hasFactors && (
+                    {/* Model feedback (may reference quizzes, timers, etc.) */}
+                    {cleanMessage && (
                       <p className="prediction-message">{cleanMessage}</p>
-                    )}
-
-                    {/* Nudge to Settings if habit data is missing */}
-                    {missingHabits && (
-                      <button
-                        className="prediction-nudge"
-                        onClick={() => setCurrentSection("settings")}
-                        type="button"
-                      >
-                        📋 Add your study habits in Settings for a more accurate result →
-                      </button>
                     )}
                   </div>
                 ) : (
                   <div className="empty-state" style={{ padding: "1rem 0" }}>
                     <div className="empty-state-icon">📊</div>
-                    <p>Prediction unavailable — keep studying and check back soon!</p>
-                    <button
-                      className="prediction-nudge"
-                      onClick={() => setCurrentSection("settings")}
-                      type="button"
-                      style={{ marginTop: "0.5rem" }}
-                    >
-                      📋 Fill in your Study Habits in Settings →
-                    </button>
+                    <p>
+                      Prediction unavailable — use flashcards, quizzes, and study timers,
+                      then check back soon.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1367,6 +1453,7 @@ function Dashboard({ currentUser, initialSection = "dashboard" }) {
 
   return (
     <>
+      <GlobalToastHost />
       {loading && (
         <div className="dashboard-fullscreen-loader">
           <div className="loader-spinner-wrap">

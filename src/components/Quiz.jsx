@@ -13,7 +13,8 @@ import {
   FaSpinner,
 } from "react-icons/fa";
 import "../styles/quiz.css";
-import { quizAPI } from "../services/apiClient.js";
+import { quizAPI, activityAPI } from "../services/apiClient.js";
+import { showAppToast } from "../utils/toastBus.js";
 
 export function Quiz() {
   const [quizMode, setQuizMode] = useState("setup"); // setup, active, results
@@ -525,14 +526,6 @@ export function Quiz() {
     history.unshift(result);
     localStorage.setItem("quiz_history", JSON.stringify(history.slice(0, 50)));
 
-    if (generatedQuizId) {
-      quizAPI
-        .saveQuizScore(generatedQuizId, correctCount, questions.length)
-        .catch((error) =>
-          console.error("Error saving quiz score:", error)
-        );
-    }
-
     const durationHours = Math.max(0.1, timeElapsed / 3600);
     const studyEvent = new CustomEvent("studyActivity", {
       detail: {
@@ -546,6 +539,46 @@ export function Quiz() {
       },
     });
     window.dispatchEvent(studyEvent);
+
+    const scorePromise = generatedQuizId
+      ? quizAPI
+          .saveQuizScore(generatedQuizId, correctCount, questions.length)
+          .then(() => true)
+          .catch((error) => {
+            console.error("Error saving quiz score:", error);
+            return false;
+          })
+      : Promise.resolve(true);
+
+    const logPromise = activityAPI
+      .logActivity(durationHours)
+      .then(() => true)
+      .catch((err) => {
+        console.error("Error logging quiz session hours:", err);
+        return false;
+      });
+
+    void Promise.all([scorePromise, logPromise]).then(([scoreOk, logOk]) => {
+      const summary = `${correctCount}/${questions.length} correct (${percentage}%)`;
+      if (!generatedQuizId) {
+        showAppToast(
+          logOk ? "success" : "info",
+          logOk
+            ? `Quiz done — ${summary}. Study time logged.`
+            : `Quiz done — ${summary}.`
+        );
+        return;
+      }
+      if (scoreOk && logOk) {
+        showAppToast("success", `Quiz done — ${summary}. Score & study time synced.`);
+      } else if (logOk) {
+        showAppToast("info", `Quiz done — ${summary}. Score not saved to server.`);
+      } else if (scoreOk) {
+        showAppToast("info", `Quiz done — ${summary}. Study time not logged to server.`);
+      } else {
+        showAppToast("error", `Quiz done — ${summary}. Sync failed — check connection.`);
+      }
+    });
 
     setQuizMode("results");
   };

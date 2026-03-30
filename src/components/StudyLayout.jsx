@@ -7,6 +7,15 @@ import {
   analyticsAPI,
   remindersAPI,
 } from "../services/apiClient.js";
+import {
+  maybeSendDailyStudyDigest,
+  processReminderEmails,
+} from "../services/reminderEmailService.js";
+import {
+  readWeeklyGoalHoursFromStorage,
+  computeWeeklyProgressPercent,
+  ACEIT_SETTINGS_KEY,
+} from "../utils/studySettings.js";
 import "../styles/StudyLayout.css";
 import {
   FaBell,
@@ -50,6 +59,7 @@ export function StudyLayout({
   const [streakPopupVisible, setStreakPopupVisible] = useState(false);
   const [streakPopupMessage, setStreakPopupMessage] = useState("");
   const streakPopupTimerRef = useRef(null);
+  const lastRawRemindersRef = useRef([]);
 
   // ── Inactivity auto-logout ────────────────────────────────────────────────
   const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
@@ -75,12 +85,12 @@ export function StudyLayout({
   const [userProfile, setUserProfile] = useState(null);
   const [gamificationData, setGamificationData] = useState(null);
   const [userStreak, setUserStreak] = useState(0);
-  const [studyMetrics, setStudyMetrics] = useState({
+  const [studyMetrics, setStudyMetrics] = useState(() => ({
     totalStudyHours: 0,
-    weeklyGoal: 100,
+    weeklyGoal: readWeeklyGoalHoursFromStorage(),
     weeklyProgress: 0,
     attendancePercentage: 0,
-  });
+  }));
   const [loading, setLoading] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -374,6 +384,46 @@ export function StudyLayout({
     setUnreadNotifications(unreadCount);
   }, [notifications]);
 
+  // Match sidebar weekly % to Settings → weekly goal (localStorage)
+  useEffect(() => {
+    const sync = () => {
+      const goal = readWeeklyGoalHoursFromStorage();
+      setStudyMetrics((prev) => {
+        const weekHrs = userProfile?.study_hours_per_week;
+        const weeklyProgress =
+          weekHrs != null
+            ? computeWeeklyProgressPercent(weekHrs, goal)
+            : prev.weeklyProgress;
+        return { ...prev, weeklyGoal: goal, weeklyProgress };
+      });
+    };
+    window.addEventListener("aceit_settings_updated", sync);
+    const onStorage = (e) => {
+      if (e.key === ACEIT_SETTINGS_KEY) sync();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("aceit_settings_updated", sync);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [userProfile?.study_hours_per_week]);
+
+  // Study reminder emails + daily digest (Settings → Email alerts; optional EmailJS in .env)
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const tick = () => {
+      const raw = lastRawRemindersRef.current;
+      const payload = {
+        userEmail: currentUser?.email,
+        userId: currentUser?.uid,
+      };
+      void processReminderEmails(raw, payload);
+      void maybeSendDailyStudyDigest(raw, payload);
+    };
+    const id = setInterval(tick, 60 * 1000);
+    return () => clearInterval(id);
+  }, [currentUser?.uid, currentUser?.email]);
+
   const fetchSidebarData = async () => {
     if (!currentUser?.uid) return;
 
@@ -382,7 +432,18 @@ export function StudyLayout({
 
       const profileResponse = await dashboardAPI.getDashboardData();
       if (profileResponse.profile?.ok) {
-        setUserProfile(profileResponse.profile.profile);
+        const profile = profileResponse.profile.profile;
+        setUserProfile(profile);
+        const goal = readWeeklyGoalHoursFromStorage();
+        const weekHrs = profile?.study_hours_per_week;
+        setStudyMetrics((prev) => ({
+          ...prev,
+          weeklyGoal: goal,
+          weeklyProgress:
+            weekHrs != null
+              ? computeWeeklyProgressPercent(weekHrs, goal)
+              : prev.weeklyProgress,
+        }));
       }
 
       await fetchGamificationData();
@@ -438,8 +499,18 @@ export function StudyLayout({
     try {
       const response = await remindersAPI.getReminders();
       if (response.ok) {
+        const rawList = response.reminders || [];
+        lastRawRemindersRef.current = rawList;
+
+        const emailPayload = {
+          userEmail: currentUser?.email,
+          userId: currentUser?.uid,
+        };
+        void processReminderEmails(rawList, emailPayload);
+        void maybeSendDailyStudyDigest(rawList, emailPayload);
+
         // Build fresh reminder notifications from the backend response.
-        const incomingReminders = response.reminders
+        const incomingReminders = rawList
           .filter((r) => !r.completed)
           .map((r) => ({
             id: `reminder-${r.id}`,
@@ -672,7 +743,7 @@ export function StudyLayout({
       setUserStreak(0);
       setStudyMetrics({
         totalStudyHours: 0,
-        weeklyGoal: 100,
+        weeklyGoal: readWeeklyGoalHoursFromStorage(),
         weeklyProgress: 0,
         attendancePercentage: 0,
       });
