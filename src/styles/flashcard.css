@@ -1172,16 +1172,19 @@ select.select option {
     font-size: 0.875rem;
   }
 
+  .study-container .navigation-buttons {
+    padding: 0.65rem 0.75rem;
+  }
+}
+
+/* Short SRS labels on phones and tablets — avoids wrap when the grid is 1 or 3 columns */
+@media (max-width: 1023px) {
   .study-container .quality-btn-label-full {
     display: none;
   }
 
   .study-container .quality-btn-label-short {
     display: inline;
-  }
-
-  .study-container .navigation-buttons {
-    padding: 0.65rem 0.75rem;
   }
 }
 
