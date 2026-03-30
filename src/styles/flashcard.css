@@ -1077,6 +1077,8 @@ select.select option {
 }
 
 .quality-btn {
+  display: flex;
+  align-items: center;
   text-align: left;
   justify-content: flex-start;
   padding: 0.75rem 1rem;
@@ -1085,8 +1087,102 @@ select.select option {
   border-radius: 0.5rem;
 }
 
+.quality-btn-icon {
+  flex-shrink: 0;
+}
+
+.quality-btn-label {
+  min-width: 0;
+  text-align: left;
+  line-height: 1.25;
+}
+
+.quality-btn-label-short {
+  display: none;
+}
+
 .quality-btn:hover {
   background-color: var(--muted);
+}
+
+/* Study mode: tighter layout and full width on small screens */
+@media (max-width: 767px) {
+  .study-container {
+    max-width: none;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    box-sizing: border-box;
+  }
+
+  .study-container.space-y-6 > * + * {
+    margin-top: 1rem;
+  }
+
+  .study-progress {
+    margin-bottom: 0.75rem;
+  }
+
+  .study-progress .progress-header h3 {
+    font-size: 0.9375rem;
+  }
+
+  .study-container .flashcard {
+    min-height: 0;
+    padding: 1rem 0.875rem 1.125rem;
+  }
+
+  .study-container .flashcard-header {
+    margin-bottom: 0.5rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .study-container .flashcard-content {
+    flex: 0 1 auto;
+    justify-content: flex-start;
+    padding: 0.25rem 0 0.5rem;
+    min-height: 10.5rem;
+  }
+
+  .study-container .flashcard-inner {
+    min-height: 10rem;
+  }
+
+  .study-container .flashcard-face {
+    padding: 0.65rem 0.35rem;
+  }
+
+  .study-container .flashcard .mt-6 {
+    margin-top: 0.875rem !important;
+  }
+
+  .study-container .quality-buttons {
+    margin-top: 0.5rem;
+  }
+
+  .study-container .quality-label {
+    margin-bottom: 0.5rem;
+    font-size: 0.8125rem;
+  }
+
+  .study-container .quality-btn {
+    min-height: 2.875rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  .study-container .quality-btn-label-full {
+    display: none;
+  }
+
+  .study-container .quality-btn-label-short {
+    display: inline;
+  }
+
+  .study-container .navigation-buttons {
+    padding: 0.65rem 0.75rem;
+  }
 }
 
 .quality-icon {

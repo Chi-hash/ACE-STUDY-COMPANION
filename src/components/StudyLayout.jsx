@@ -954,6 +954,14 @@ export function StudyLayout({
         {/* Header */}
         <div className="sidebar-header">
           <div className="sidebar-header-content">
+            <img
+              className="sidebar-brand-logo"
+              src="/logo.png"
+              alt=""
+              width={36}
+              height={36}
+              decoding="async"
+            />
             <div className={sidebarCollapsed ? "hidden" : "block"}>
               <h1 className="sidebar-title">AceIt</h1>
               <p className="sidebar-subtitle">Smart Learning Platform</p>

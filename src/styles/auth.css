@@ -70,8 +70,9 @@ header .header-left {
 }
 
 header .acelogo {
-  height: 36px;
-  width: 36px;
+  height: 40px;
+  width: 40px;
+  object-fit: contain;
 }
 
 header .header-left h4 {

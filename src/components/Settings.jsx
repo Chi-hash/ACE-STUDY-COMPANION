@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
-import { FaCamera, FaCloud } from "react-icons/fa";
+import { FaCamera, FaCloud, FaDownload, FaUpload } from "react-icons/fa";
 import { auth } from "../assets/js/firebase.js";
 import { userAPI } from "../services/apiClient.js";
 import { requestReminderNotificationPermission } from "../services/reminderEmailService.js";
@@ -10,6 +10,9 @@ import { ACEIT_SETTINGS_KEY } from "../utils/studySettings.js";
 import "../styles/settings.css";
 
 const PROFILE_PIC_KEY = "aceit_profile_picture";
+const FLASHCARDS_STORAGE_KEY = "ace-it-flashcards";
+const REVIEW_DATA_STORAGE_KEY = "ace-it-review-data";
+const STUDY_BACKUP_VERSION = 1;
 
 /** Resize & compress an image File to a 200×200 JPEG data-URL. */
 const compressImage = (file) =>
@@ -96,6 +99,88 @@ export function Settings({ currentUser }) {
     () => localStorage.getItem(PROFILE_PIC_KEY) || null
   );
   const avatarInputRef = useRef(null);
+  const studyBackupInputRef = useRef(null);
+
+  const handleExportStudyBackup = useCallback(() => {
+    try {
+      let cards = [];
+      let review = {};
+      try {
+        const rawC = localStorage.getItem(FLASHCARDS_STORAGE_KEY);
+        if (rawC) cards = JSON.parse(rawC);
+        if (!Array.isArray(cards)) cards = [];
+      } catch {
+        cards = [];
+      }
+      try {
+        const rawR = localStorage.getItem(REVIEW_DATA_STORAGE_KEY);
+        if (rawR) review = JSON.parse(rawR);
+        if (!review || typeof review !== "object") review = {};
+      } catch {
+        review = {};
+      }
+      const payload = {
+        version: STUDY_BACKUP_VERSION,
+        exportedAt: new Date().toISOString(),
+        aceItFlashcards: cards,
+        aceItReviewData: review,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aceit-study-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showAppToast("success", "Backup downloaded — use Import on your live site.");
+    } catch {
+      showAppToast("error", "Could not create backup.");
+    }
+  }, []);
+
+  const handleImportStudyBackup = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      let cards;
+      let review = {};
+      if (
+        data &&
+        typeof data === "object" &&
+        data.version === STUDY_BACKUP_VERSION &&
+        data.aceItFlashcards != null
+      ) {
+        cards = data.aceItFlashcards;
+        review = data.aceItReviewData && typeof data.aceItReviewData === "object"
+          ? data.aceItReviewData
+          : {};
+      } else if (Array.isArray(data)) {
+        cards = data;
+      } else {
+        showAppToast("error", "Unrecognized backup file.");
+        return;
+      }
+      if (!Array.isArray(cards)) {
+        showAppToast("error", "Backup has no flashcard list.");
+        return;
+      }
+      const ok = window.confirm(
+        `Replace flashcards on this device with ${cards.length} cards from the file? This overwrites current flashcards and review progress here.`,
+      );
+      if (!ok) return;
+      localStorage.setItem(FLASHCARDS_STORAGE_KEY, JSON.stringify(cards));
+      localStorage.setItem(REVIEW_DATA_STORAGE_KEY, JSON.stringify(review));
+      window.dispatchEvent(new CustomEvent("aceit-study-data-imported"));
+      showAppToast("success", `Imported ${cards.length} flashcards.`);
+    } catch {
+      showAppToast("error", "Could not read that file.");
+    }
+  }, []);
 
   /** Compress, store, and broadcast the new profile picture. */
   const handleAvatarChange = async (e) => {
@@ -676,6 +761,53 @@ export function Settings({ currentUser }) {
               </div>
             </div>
           )}
+        </section>
+
+        {/* ════════════════════════════════════════
+            STUDY DATA (per browser / per site)
+        ════════════════════════════════════════ */}
+        <section className="settings-card">
+          <h2 className="settings-section-title">Flashcards &amp; study data</h2>
+          <p className="settings-study-data-note">
+            Flashcards and spaced-repetition progress are stored in{" "}
+            <strong>this browser</strong> for <strong>this website address</strong>.
+            <br />
+            <strong>localhost</strong> (when you develop) and <strong>your deployed URL</strong>{" "}
+            (e.g. <code className="settings-code-inline">.vercel.app</code>) do{" "}
+            <strong>not</strong> share storage — that is normal browser behavior, not a bug.
+            Cards that only existed on your computer stay there until you move them.
+          </p>
+          <p className="settings-study-data-note settings-study-data-note-secondary">
+            Download a backup while logged in on <strong>localhost</strong>, then open{" "}
+            <strong>Settings</strong> on your live site and import the same file (same account).
+          </p>
+          <div className="settings-study-data-actions">
+            <input
+              ref={studyBackupInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="settings-hidden-file-input"
+              aria-hidden
+              tabIndex={-1}
+              onChange={handleImportStudyBackup}
+            />
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={handleExportStudyBackup}
+            >
+              <FaDownload className="settings-inline-icon" aria-hidden />
+              Download backup
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => studyBackupInputRef.current?.click()}
+            >
+              <FaUpload className="settings-inline-icon" aria-hidden />
+              Import backup…
+            </button>
+          </div>
         </section>
 
         {/* ════════════════════════════════════════

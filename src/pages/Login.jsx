@@ -12,7 +12,7 @@ import {
 import { auth } from "../assets/js/firebase.js";
 import "../styles/auth.css";
 import leftlogo from "../assets/leftlogo.svg";
-import acelogo from "../assets/aceLogo.svg";
+import brandLogo from "../assets/logo.png";
 import orimage from "../assets/orimage.svg";
 import googlelogo from "../assets/googlelogo.svg";
 import { countries } from "../data/countries";
@@ -368,7 +368,7 @@ const Login = () => {
     <>
       <header>
         <div className="header-left">
-          <img src={acelogo} alt="Ace logo" className="acelogo" />
+          <img src={brandLogo} alt="AceIt" className="acelogo" />
           <h4>Ace</h4>
         </div>
         <div className="header-right">

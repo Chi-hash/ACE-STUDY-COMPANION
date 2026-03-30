@@ -797,6 +797,29 @@ export function Flashcards() {
     fetchFlashcardData();
   }, [backendStatus]);
 
+  useEffect(() => {
+    const onStudyDataImported = () => {
+      try {
+        const savedFlashcards = localStorage.getItem("ace-it-flashcards");
+        const savedReviewData = localStorage.getItem("ace-it-review-data");
+        if (savedFlashcards) {
+          const parsed = JSON.parse(savedFlashcards);
+          if (Array.isArray(parsed)) setFlashcards(parsed);
+        }
+        if (savedReviewData) {
+          const parsedReview = JSON.parse(savedReviewData);
+          if (parsedReview && typeof parsedReview === "object") {
+            setReviewData(parsedReview);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("aceit-study-data-imported", onStudyDataImported);
+    return () =>
+      window.removeEventListener("aceit-study-data-imported", onStudyDataImported);
+  }, []);
 
   useEffect(() => {
     if (flashcards.length > 0) {
@@ -1962,25 +1985,61 @@ export function Flashcards() {
                       </p>
                       <div className="quality-grid">
                         <button
+                          type="button"
                           className="btn btn-outline quality-btn"
+                          aria-label="Perfect — easy recall"
                           onClick={() => handleSpacedRepetitionAnswer(5)}
                         >
-                          <FaCheckCircle className="w-4 h-4 mr-2 icon-green" />
-                          Perfect - Easy recall
+                          <FaCheckCircle className="w-4 h-4 mr-2 icon-green quality-btn-icon" />
+                          <span className="quality-btn-label">
+                            <span className="quality-btn-label-full">
+                              Perfect - Easy recall
+                            </span>
+                            <span
+                              className="quality-btn-label-short"
+                              aria-hidden="true"
+                            >
+                              Easy recall
+                            </span>
+                          </span>
                         </button>
                         <button
+                          type="button"
                           className="btn btn-outline quality-btn"
+                          aria-label="Correct, with hesitation"
                           onClick={() => handleSpacedRepetitionAnswer(4)}
                         >
-                          <FaCheckCircle className="w-4 h-4 mr-2 icon-blue" />
-                          Correct - With hesitation
+                          <FaCheckCircle className="w-4 h-4 mr-2 icon-blue quality-btn-icon" />
+                          <span className="quality-btn-label">
+                            <span className="quality-btn-label-full">
+                              Correct - With hesitation
+                            </span>
+                            <span
+                              className="quality-btn-label-short"
+                              aria-hidden="true"
+                            >
+                              With hesitation
+                            </span>
+                          </span>
                         </button>
                         <button
+                          type="button"
                           className="btn btn-outline quality-btn"
+                          aria-label="Correct, with difficulty"
                           onClick={() => handleSpacedRepetitionAnswer(3)}
                         >
-                          <FaExclamationTriangle className="w-4 h-4 mr-2 icon-yellow" />
-                          Correct - With difficulty
+                          <FaExclamationTriangle className="w-4 h-4 mr-2 icon-yellow quality-btn-icon" />
+                          <span className="quality-btn-label">
+                            <span className="quality-btn-label-full">
+                              Correct - With difficulty
+                            </span>
+                            <span
+                              className="quality-btn-label-short"
+                              aria-hidden="true"
+                            >
+                              With difficulty
+                            </span>
+                          </span>
                         </button>
                       </div>
                     </div>

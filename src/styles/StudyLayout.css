@@ -225,7 +225,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 30px;
+  gap: 0.75rem;
+}
+
+.sidebar-brand-logo {
+  width: 2.25rem;
+  height: 2.25rem;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.sidebar-collapsed .sidebar-brand-logo {
+  width: 1.85rem;
+  height: 1.85rem;
 }
 
 .sidebar-title {
