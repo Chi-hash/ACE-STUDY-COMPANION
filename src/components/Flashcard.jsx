@@ -70,6 +70,33 @@ function isBackendFlashcardMergeSkipped() {
   }
 }
 
+/** Human-readable type for upload preview (avoids long unbroken MIME on small screens). */
+function formatUploadFileTypeLabel(mime) {
+  if (!mime) return "Unknown type";
+  const m = String(mime).toLowerCase();
+  if (m.includes("pdf")) return "PDF";
+  if (m.includes("wordprocessingml") || m === "application/msword")
+    return "Word document";
+  if (
+    m.includes("presentationml") ||
+    m.includes("powerpoint") ||
+    m === "application/vnd.ms-powerpoint"
+  )
+    return "PowerPoint";
+  if (
+    m.includes("spreadsheetml") ||
+    m.includes("excel") ||
+    m === "application/vnd.ms-excel"
+  )
+    return "Excel";
+  if (m.startsWith("text/")) return "Text";
+  if (m.startsWith("image/")) {
+    const sub = m.split("/")[1] || "";
+    return sub ? `Image (${sub})` : "Image";
+  }
+  return mime;
+}
+
 // ==================== COMPLETE STREAK MANAGER ====================
 class StreakManager {
   constructor() {
@@ -1750,8 +1777,8 @@ export function Flashcards() {
             <div className="file-preview-info">
               <div className="file-preview-name">{uploadedFile.name}</div>
               <div className="file-preview-meta">
-                {(uploadedFile.size / 1024).toFixed(2)} KB • {uploadedFile.type}{" "}
-                • Last modified:{" "}
+                {(uploadedFile.size / 1024).toFixed(2)} KB •{" "}
+                {formatUploadFileTypeLabel(uploadedFile.type)} • Last modified:{" "}
                 {new Date(uploadedFile.lastModified).toLocaleDateString()}
               </div>
             </div>
@@ -1785,10 +1812,10 @@ export function Flashcards() {
             </p>
           </div>
 
-          <div className="flex gap-2 mt-6">
+          <div className="file-preview-actions flex flex-col gap-2 mt-6 sm:flex-row sm:flex-wrap">
             <button
               onClick={processFileUpload}
-              className="btn btn-primary flex-1"
+              className="btn btn-primary w-full min-w-0 sm:flex-1"
               disabled={isGenerating}
             >
               {isGenerating ? (
@@ -1808,7 +1835,7 @@ export function Flashcards() {
                 setUploadedFile(null);
                 setMode("subjects");
               }}
-              className="btn btn-outline"
+              className="btn btn-outline w-full shrink-0 sm:w-auto"
             >
               Choose Different File
             </button>
